@@ -1,0 +1,8 @@
+---
+description: Repository-wide Winemaker05 agent instructions
+alwaysApply: true
+---
+
+# Project Instructions
+
+Read `AGENTS.md` before repository work and use `skills/winemaker-game/SKILL.md` to route the task. Use `skills/pixi-web-app-dev/SKILL.md` when work actually involves PixiJS; its presence does not establish the application stack.
