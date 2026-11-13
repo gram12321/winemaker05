@@ -6,11 +6,11 @@ Record approved product direction and user-facing decisions here; identify propo
 
 Winemaker05 aims to connect vineyard and harvest, inherited potential, evolving wine, cellar decisions, and commercial management. The redesign separates agricultural potential from commercial origin prestige and inherited potential from mutable development. Structure and taste are intended to use a shared moving-target evaluation framework.
 
-The authoritative wine/lot model and the central cellar workflow should inform each other. Exact variables, lifecycle representation, equations, interface technology, and many interactions remain open; the 04 implementation is a reference rather than the 05 schema.
+The authoritative wine/lot model and the central cellar workflow should inform each other. Exact variables, lifecycle representation, equations, and many interactions remain open; the 04 implementation is a reference rather than the 05 schema.
 
-## Approved decisions
+## Agreed presentation direction
 
-Add decisions here, with their rationale and a link to any detailed design, as they are settled. Keep implemented behavior in [application-flow.md](application-flow.md).
+The alpha uses a 2.5D world organized into scenes, supported by accessible management panels. Its application shell uses TypeScript, Vite, and React; PixiJS renders layered scenes with fixed, scene-specific compositions. HTML/CSS and React handle navigation and panels. The prototype uses placeholders without game data or persistence. PixiJS is pinned in the project manifest; renderer details and scene composition remain open.
 
 ## Open decisions and proposals
 
