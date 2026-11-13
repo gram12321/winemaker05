@@ -4,9 +4,9 @@ Record verified repository facts here. Check the current files before relying on
 
 ## Current status
 
-Winemaker05 has a minimal web application bootstrap for the approved alpha UI stack. The placeholder app does not yet implement the designed scenes, panels, game data, or simulation. No application test suite is configured.
+Winemaker05 is at the design and tooling stage. The repository currently has no application source, package manifest, application dependencies, configured test suite, or setup/run/build commands. The intended alpha stack has been selected as TypeScript, Vite, and React for the application shell, with PixiJS for the layered 2.5D scene layer. This is a design decision, not an installed or verified toolchain. The Git repository is initialized and has a configured `origin` remote.
 
-The 04 reference used for this transition is [gram12321/winemaker04 at f3f4dade](https://github.com/gram12321/winemaker04/tree/f3f4dadeac2663b4744ca107a87cd1f1ad1122ac). Its technologies and module paths describe 04 only. Winemaker05's approved UI stack is recorded in [design.md](design.md).
+The 04 reference used for this transition is [gram12321/winemaker04 at f3f4dade](https://github.com/gram12321/winemaker04/tree/f3f4dadeac2663b4744ca107a87cd1f1ad1122ac). Its technologies and module paths describe 04 only. The intended 05 alpha stack is recorded below from approved project direction; it is not inferred from the presence of skills.
 
 ## Repository map
 
@@ -21,22 +21,11 @@ The 04 reference used for this transition is [gram12321/winemaker04 at f3f4dade]
 
 ## Stack, commands, and ownership
 
-| Area | Stack or ownership |
-|---|---|
-| Application shell | React and TypeScript, bundled and served by Vite. |
-| 2.5D scenes | PixiJS 8.23.0; React owns shell state and connects to the scene renderer. |
-| Styling | Native HTML and CSS; no styling framework is selected. |
-| Package manager | npm with exact direct dependency pins and a committed `package-lock.json`. |
-| UI source | `src/`; the app bootstrap is a placeholder, not an implemented game flow. |
+The intended alpha stack is:
 
-Requires Node.js 22.12.0 or newer. Verified local environment: Node.js 24.18.0 and npm 11.16.0.
+- **TypeScript** for application code.
+- **Vite** for development and bundling.
+- **React with HTML/CSS** for navigation, panels, modals, and other accessible shell UI.
+- **PixiJS** for layered, fixed-composition 2.5D scenes. The design does not require a freely rotating 3D camera or dynamic lighting.
 
-| Command | Purpose |
-|---|---|
-| `npm install` | Install the pinned dependency tree from the lockfile. |
-| `npm run dev` | Start the Vite development server. |
-| `npm run typecheck` | Run TypeScript checks without emitting files. |
-| `npm run build` | Typecheck and create the production bundle in `dist/`. |
-| `npm run preview` | Preview the production bundle locally. |
-
-No application test runner is configured. The approved alpha UI scope and visual references remain in the design materials; this bootstrap does not implement their scenes or interactions.
+No application source, package manifest, dependencies, commands, or module ownership have been verified or created. Pin the PixiJS version and record actual setup/run/build/test commands when scaffolding begins. Keep domain simulation and persistence separate from the React and PixiJS presentation layers.

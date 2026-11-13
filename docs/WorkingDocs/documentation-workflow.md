@@ -11,6 +11,7 @@ Use these documents as complementary views of the same project. This preserves t
 | New-session context | [session-start-prompt.md](session-start-prompt.md) | Entry points or session-start workflow change. |
 | Stable domain vocabulary and naming | [CONTEXT.md](CONTEXT.md) | Terms, stable parameters, or naming decisions are agreed or revised. |
 | Approved direction and open decisions | [design.md](design.md) and [transition overview](Winemaker04_to_05_Transition_Overview.md) | A product or architecture decision changes. Preserve proposal and decision status. |
+| Winemaker04 system inventory and proposed disposition | [Winemaker04_to_05_System_Inventory.md](Winemaker04_to_05_System_Inventory.md) | Source evidence or proposed 05 dispositions for the 04 systems change; promote a proposal to [design.md](design.md) only after it is agreed. |
 | Implemented systems, domain behavior, player flow | [application-flow.md](application-flow.md) | Verified behavior, state ownership, interactions, or implementation status change. |
 | Module ownership, stack, and commands | [PROJECT_INFO.md](PROJECT_INFO.md) | Files move or the verified stack, commands, or boundaries change. |
 | Variable dependencies and cross-system flow | [VariableRelationshipMap.md](VariableRelationshipMap.md) | A verified relationship, calculation, action, snapshot, or visible dependency changes. Update diagrams and text together. |

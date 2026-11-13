@@ -2,13 +2,15 @@
 
 Original chat: https://chatgpt.com/g/g-p-690d10f8c8e88191aabf8da4ef459b8c-winemaker-0-4-game-creation/c/6af60090-f84c-83ed-8c51-d84ad4cbb4d9
 
-**Status:** Revised working design overview — transition from analysis of Winemaker04 to the proposed architecture and gameplay direction of Winemaker05  
-**Discussion dates:** 12–13 November 2026 (revised 13 November)  
-**Reference implementation:** [gram12321/winemaker04](https://github.com/gram12321/winemaker04)  
+**Status:** Revised working design overview — transition from analysis of Winemaker04 to the proposed architecture and gameplay direction of Winemaker05<br>
+**Discussion dates:** 12–13 November 2026 (revised 13 November)<br>
+**Reference implementation:** [gram12321/winemaker04](https://github.com/gram12321/winemaker04)<br>
 **Code revision examined in the discussion:** `f3f4dadeac2663b4744ca107a87cd1f1ad1122ac` (main, 22 July 2026)
 
-> **Purpose of this document**  
+> **Purpose of this document**<br>
 > This document consolidates the full discussion about moving from Winemaker04 to Winemaker05. It is deliberately an extended design overview, **not** a short summary and **not** a final technical specification. It preserves the actual-code findings, gameplay interpretation, proposed architecture, trade-offs, examples, and uncertainties discussed. It separates what **04 does today**, what is **agreed as a direction for 05**, what has been **proposed but not yet decided**, and what requires **further investigation or design**. In particular, the numbers of anchors, structural characteristics, flavor families, and persisted lifecycle states in 04 are **descriptions of the old implementation, not mandatory specifications for 05**.
+>
+> The [system inventory](Winemaker04_to_05_System_Inventory.md) complements this overview with a proposed disposition of Winemaker04 staff, finance, research, market, persistence, progression, and online systems.
 
 ---
 
@@ -962,51 +964,29 @@ Clarifying these boundaries should simplify both the simulation and the user int
 
 ## 9. Retain, rebuild, and reconsider
 
-The following **original concise direction table is intentionally preserved** as a central design reference. It summarizes which concepts work and how they should move forward, without requiring the original field counts or equations to survive.
+The table keeps the original 12 comparison topics, adds a decision-status column, and includes the additional implementation decisions previously listed separately. The counts and fields in the 04 implementation remain reference points, not requirements for 05.
 
-| Existing concept               | Direction for the next iteration                                 |
-| ------------------------------ | ---------------------------------------------------------------- |
-| Vineyard characteristics       | Preserve and refine                                              |
-| Wine anchors                   | Preserve concept, rebuild implementation                         |
-| Land Value Modifier            | Separate agricultural potential from commercial prestige         |
-| Six characteristics            | Preserve as core sensory/structural variables                    |
-| Moving Structure Index         | Preserve as central scoring principle                            |
-| Taste families and descriptors | Preserve, but emphasize wine identity and presentation           |
-| Taste Quality Index            | Unify evaluation framework; reconsider scoring weight            |
-| Synergy/penalty rules          | Mostly incorporate into moving target calculations               |
-| Feature system                 | Replace behavior with unified development and risk simulation    |
-| Fermentation                   | Rebuild as a transformative, time-dependent process              |
-| Maturation/storage             | Connect equipment and vessel attributes to actual wine evolution |
-| Sales and contracts            | Retain core mechanics, redesign presentation and management      |
-
-**Interpretation of this table:** “Preserve six characteristics” means retaining the successful *structural-characteristics concept and present six as a starting point*, **not** committing 05 to exactly six axes. Likewise, retaining taste families does **not** fix the present 14 families or 26 descriptors, and preserving anchors does **not** fix the existing 12. The Land Value Modifier row now has a concrete agreed interpretation: **Terroir Potential** (agricultural/raw-material side) and **Origin Prestige** (commercial side).
-
-### 9.1. Detailed implementation and decision status
-
-| 04 element | Current direction for 05 | Status |
+| Existing concept | Direction for the next iteration | Status and open detail |
 |---|---|---|
-| Vineyard attributes, grape suitability, ripeness and harvest | Retain and refine as foundational sources of potential and harvest choices | Agreed concept |
-| Wine anchors | Keep origin-dependent potential; split from development/process state | Agreed split; exact anchor count and definitions open |
-| Land Value Modifier | Replace as a player-facing concept with Terroir Potential + Origin Prestige | Agreed naming direction and conceptual split; formulas open |
-| Six characteristics | Start with existing six, but allow a different number, definitions or names | Concept agreed; exact dimensions open |
-| Moving Structure Index | Preserve as a distinctive contextual evaluation mechanic | Agreed concept |
-| Parallel taste system | Preserve independent expressive taste/flavor profile; use same moving-target engine as Structure | Agreed concept; individual families/descriptors open |
-| Taste Quality Index as half of Wine Score | Reconsider weighting and purpose without changing the unified evaluator principle | Open scoring design |
-| Explicit synergy/penalty system | Absorb most structural interactions into shifting targets; separate faults | Strong proposed direction |
-| Features framework | Preserve useful risk/reward scenarios, but model their causes through development | Agreed redesign direction; details open |
-| Fermentation | Physical sugar-to-alcohol progression, time, yeast activity and possible stall | Agreed modeling direction; equations open |
-| Extraction and maceration | Finite material, kinetics, depletion and real trade-offs | Proposed modeling approach |
-| Actual storage vessels | Their material, quality, condition, capacity and environment should influence the wine | Agreed integration goal |
-| Pre-bottle maturation | Include in ongoing wine development rather than jump from fermenting to bottled | Agreed redesign need; mechanics open |
-| Post-bottle evolution | Continue the same wine's maturation under new storage/closure conditions | Agreed integration goal; details open |
-| Lifecycle persistence | Do not preserve `grapes` / `must_ready` / `must_fermenting` / `bottled` as 05's assumed schema | Agreed rethink; replacement open |
-| Wine Score and evaluation | Separate structural fit, possible taste fit, style and typicity where useful | Proposed model; exact formula open |
-| Sales, pricing, contracts, customers | Preserve broadly successful mechanics, adapt inputs from 05 | Agreed direction |
-| Wine cellar | Make it the central place for production, aging, wine assessment and commercial portfolio decisions | Agreed gameplay priority |
-| Pinot Noir · 2029 wine-detail card | Preserve as a concrete example of product-first presentation with expandable depth | Illustrative UX reference |
-| Split, blend and compare lots | Interesting extension once the full material state supports it | Open feature design |
+| Vineyard characteristics | Preserve and refine | Vineyard, grape, ripeness, and harvest remain sources of potential and player choices; exact relationships are open. |
+| Wine anchors | Preserve concept, rebuild implementation | Separate inherited Raw Material Anchors from mutable development/process state. The 04 count of 12 is not required; fields and the mutable side's name remain open. |
+| Land Value Modifier | Separate agricultural potential from commercial prestige | The player-facing concepts Terroir Potential and Origin Prestige are agreed. Formulas and their relationship to existing vineyard/company prestige remain open. |
+| Six characteristics | Preserve as core sensory/structural variables | Use the current six as a starting point; final number, definitions, and names remain open. |
+| Moving Structure Index | Preserve as central scoring principle | Contextual moving targets are agreed in principle; dimensions and exact rules remain open. |
+| Taste families and descriptors | Preserve, but emphasize wine identity and presentation | Keep a parallel taste profile under the same configurable moving-target framework as structure. The 14 families and 26 descriptors are not fixed. |
+| Taste Quality Index | Unify evaluation framework; reconsider scoring weight | The role of taste fit in any overall Wine Score remains open. |
+| Synergy/penalty rules | Mostly incorporate into moving target calculations | Strong direction; identify any exceptional rules that remain and keep physical faults distinct from structural imbalance. |
+| Feature system | Replace behavior with unified development and risk simulation | Retain useful risk/reward scenarios, but connect their causes to wine development; exact representation remains open. |
+| Fermentation | Rebuild as a transformative, time-dependent process | Model physical sugar-to-alcohol progression, yeast activity, and possible stalls. Equations and kinetics remain open. |
+| Maturation/storage | Connect equipment and vessel attributes to actual wine evolution | Vessel and environment effects should matter. Include pre-bottle maturation and continued post-bottle development; mechanics and parameters remain open. |
+| Sales and contracts | Retain core mechanics, redesign presentation and management | Preserve the broad pricing, customer, contract, and sales foundation; adapt its inputs to the 05 wine model and Origin Prestige. |
+| Extraction and maceration | Model material changes and trade-offs | Finite material, depletion, and kinetics are a proposed approach; exact mechanics remain open. |
+| Lifecycle persistence | Rethink rather than copy 04's four persisted states | Separate material form, active processes, physical facts/history, and derived readiness as needed. The 05 persistence model remains open. |
+| Wine Score and evaluation | Keep development separate from structural fit, taste fit, style, and typicity | This is a proposed model; the final formula and the role of each assessment remain open. |
+| Wine cellar and Pinot Noir · 2029 example | Make the cellar central to production, aging, assessment, and commercial decisions | The management priority and example are agreed; the card's invented values are illustrative, while exact tools and interactions remain open. |
+| Lot splitting, blending, and comparison | Consider as cellar capabilities | Open feature design; blending should operate on material state, not just average finished scores. |
 
-The practical distinction is **preserve the interacting game systems, not the precise 04 representation of their variables or lifecycle states**.
+Preserve the interacting game systems, not the precise 04 representation of their variables or lifecycle states.
 
 ## 10. Open questions for the design phase
 
@@ -1155,36 +1135,6 @@ The following are **source-code references** used in the discussion, not just de
 
 ## 14. Current design status and next decision
 
-**Established direction:** Preserve the interaction between vineyard/harvest, origin-dependent potential, evolving wine properties and taste, real processing and maturation, post-bottle development, and commercial management. Rebuild the underlying code around clearer variable boundaries, real time-dependent physical transformations, a shared moving-target evaluator, and meaningful vessel/storage coupling. The wine cellar should become the central management experience, not simply a sales inventory view.
+As of 13 November 2026, the direction and its open details are summarized in §9; the outstanding design questions are listed in §10. This overview records design direction and supporting 04 findings, not a frozen implementation specification.
 
-**Established split and player-facing names:** Replace Land Value Modifier with **Terroir Potential** (agricultural/raw-material contribution) and **Origin Prestige** (commercial premium). Existing vineyard and company prestige mechanics must be reconciled with the new commercial concept, but the split is not provisional.
-
-**Established conceptual distinction:** The 04 anchor collection mixes inherited potential with achieved development. 05 should separate **Raw Material Anchors** from **Processing Anchors / Development State** (the latter name still open). The exact 12 anchors are not mandatory.
-
-**Established flexible starting points:** 04's six structural characteristics work well and remain the initial working set, but their final number and definitions are open. The parallel taste system remains an important concept, but the current families, descriptors and Taste Quality Index weight are not locked. Structure and taste should use the **same configurable moving-target evaluation framework**, without having to use the same number of dimensions or the same weighting.
-
-**Established lifecycle redesign:** The four persisted 04 states (`grapes`, `must_ready`, `must_fermenting`, `bottled`) should **not** be copied as the default 05 state machine. Maturation before and after bottling must be supported as part of the genuine development engine; the final persisted/derived state model is still to be designed.
-
-**Still exploratory:** Exact physical and sensory variables, detailed fermentation/extraction/maturation equations, the new mutable-state name, the final moving-target mathematics, whether the old synergy rules have any remaining independent purpose, how faults are represented, precise cellar operations, and the finished UI layouts.
-
-**Highest-priority next task:** Define the internal authoritative **wine/lot state model** for 05 and its relationship to **Raw Material Anchors**, **Development State**, **sensory projections**, **evaluation**, **vessel/storage conditions**, **lifecycle semantics**, and **commercial value**. Design this together with a first version of the **central cellar-management workflow**, so the simulation produces information and decisions the player will actually use.
-
----
-
-## 15. Compact decision register (as of 13 November 2026)
-
-| Topic | Agreed or strongly established | Remains open |
-|---|---|---|
-| Core game flow | Vineyard/harvest → potential → sensory/development → bottled evolution → cellar/commerce | Exact physical data models and process order |
-| Vineyard commercial value | Separate **Terroir Potential** and **Origin Prestige** | Formulas and interactions with existing prestige |
-| Anchors | Keep the potential-limits-treatment concept; separate raw from processing/development | Names and counts of anchors, physical-state definitions |
-| Structure | Keep moving contextual targets | Number/names of axes, exact rules |
-| Taste | Keep a parallel taste system using **the same moving-target engine** | Families/descriptors and scoring role |
-| Synergy/penalty | Reduce duplication with moving targets; distinguish faults | Remaining exceptional rules |
-| Development | Genuine transformations for fermentation, extraction, maturation, risks, and bottle aging | Modeling detail and kinetics |
-| Storage | Vessel attributes must affect the actual wine | Exact material/environment parameters |
-| Lifecycle | Do not preserve the four 04 states unchanged | Minimal persisted fields versus derived status |
-| Cellar | Central management experience; **Pinot Noir · 2029** retained as illustration | Detailed tools, screens, interaction design |
-| Sales/contracts | Retain successful economic foundation | Adapted inputs, presentation and portfolio mechanics |
-
-*This document is a design overview, not a frozen implementation specification. Its purpose is to keep the complete rationale from 04 intact while making the intended transition to 05 explicit.*
+**Highest-priority next task:** Define the authoritative 05 wine/lot state model and its relationship to Raw Material Anchors, Development State, sensory projections, evaluation, vessel/storage conditions, lifecycle semantics, and commercial value. Design it alongside an initial central-cellar workflow, using the retained Pinot Noir · 2029 example, so the simulation exposes decisions players can act on.
