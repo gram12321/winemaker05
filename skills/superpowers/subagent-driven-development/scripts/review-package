@@ -46,4 +46,3 @@ if command -v cygpath >/dev/null 2>&1; then
   display_out=$(cygpath -am "$out")
 fi
 echo "wrote ${display_out}: ${commits} commit(s), $(wc -c < "$out" | tr -d ' ') bytes"
-

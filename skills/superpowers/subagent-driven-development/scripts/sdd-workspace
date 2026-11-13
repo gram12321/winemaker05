@@ -22,4 +22,3 @@ if [ ! -e "$dir/.gitignore" ]; then
   printf '*\n' > "$dir/.gitignore"
 fi
 cd "$dir" && pwd
-

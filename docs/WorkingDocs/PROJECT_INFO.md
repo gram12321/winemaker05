@@ -4,7 +4,7 @@ Record verified repository facts here. Check the current files before relying on
 
 ## Current status
 
-Winemaker05 is at the design and tooling stage. The repository currently has no application source, package manifest, application dependencies, configured test suite, or setup/run/build commands. Git was not initialized in this workspace when this guide was created.
+Winemaker05 is at the design and tooling stage. The repository currently has no application source, package manifest, application dependencies, configured test suite, or setup/run/build commands. The Git repository is initialized and has a configured `origin` remote.
 
 The 04 reference used for this transition is [gram12321/winemaker04 at f3f4dade](https://github.com/gram12321/winemaker04/tree/f3f4dadeac2663b4744ca107a87cd1f1ad1122ac). Its technologies and module paths describe 04 only. The 05 UI and persistence choices, including whether to use PixiJS, are not established by the presence of skills.
 

@@ -2,12 +2,12 @@
 
 Original chat: https://chatgpt.com/g/g-p-690d10f8c8e88191aabf8da4ef459b8c-winemaker-0-4-game-creation/c/6af60090-f84c-83ed-8c51-d84ad4cbb4d9
 
-**Status:** Revised working design overview — transition from analysis of Winemaker04 to the proposed architecture and gameplay direction of Winemaker05  
-**Discussion dates:** 12–13 November 2026 (revised 13 November)  
-**Reference implementation:** [gram12321/winemaker04](https://github.com/gram12321/winemaker04)  
+**Status:** Revised working design overview — transition from analysis of Winemaker04 to the proposed architecture and gameplay direction of Winemaker05<br>
+**Discussion dates:** 12–13 November 2026 (revised 13 November)<br>
+**Reference implementation:** [gram12321/winemaker04](https://github.com/gram12321/winemaker04)<br>
 **Code revision examined in the discussion:** `f3f4dadeac2663b4744ca107a87cd1f1ad1122ac` (main, 22 July 2026)
 
-> **Purpose of this document**  
+> **Purpose of this document**<br>
 > This document consolidates the full discussion about moving from Winemaker04 to Winemaker05. It is deliberately an extended design overview, **not** a short summary and **not** a final technical specification. It preserves the actual-code findings, gameplay interpretation, proposed architecture, trade-offs, examples, and uncertainties discussed. It separates what **04 does today**, what is **agreed as a direction for 05**, what has been **proposed but not yet decided**, and what requires **further investigation or design**. In particular, the numbers of anchors, structural characteristics, flavor families, and persisted lifecycle states in 04 are **descriptions of the old implementation, not mandatory specifications for 05**.
 
 ---
