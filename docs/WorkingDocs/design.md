@@ -24,8 +24,8 @@ Record approved product direction and user-facing decisions here; identify propo
 - Wine-detail modals may take visual and interaction inspiration from Winemaker04, adapted to 05 concepts.
 - The alpha requires navigation and placeholders, not game data, fixture-driven simulation behavior, or persisted player preferences. The prototype starts at Estate by default; the Cellar stays directly reachable from global navigation.
 - Target desktop landscape first, using about 1280×720 as the alpha layout baseline; mobile is deferred.
-- Detailed scene layouts, camera framing, panel sizing, and Management sub-navigation remain to be designed.
-- The intended alpha stack is TypeScript, Vite, and React for the application shell, with PixiJS for layered, fixed-composition 2.5D scenes. The design does not require a freely rotating 3D camera or dynamic lighting. Pin the PixiJS version when the application is scaffolded.
+- The alpha prototype uses provisional scene layouts, camera framing, panel sizing, and Management sub-navigation; their future refinement remains open.
+- The alpha stack is TypeScript, Vite, and React for the application shell, with PixiJS for layered, fixed-composition 2.5D scenes. The design does not require a freely rotating 3D camera or dynamic lighting. See [project information](PROJECT_INFO.md) for the installed version.
 
 See the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md) for the approved placeholder-prototype scope, scene map, navigation walkthroughs, and acceptance criteria. The [UI visual concepts](Winemaker05_UI_Visual_Concepts.md) hold the full brainstorm and generated image references.
 
@@ -42,7 +42,7 @@ The [Winemaker04-to-05 system inventory](Winemaker04_to_05_System_Inventory.md) 
 - Do not assume a separate research tree or shared grant, gate, and permanent-effect system. Reassign useful pieces to the 05 domains that own the changed behavior after the wine loop and progression are defined.
 - Preserve the useful NPC, local, and company-to-company market choices and expand product coverage after 05 inventory and trading rules are defined. Keep the ability to save company progress; the provider and schema remain open.
 
-These directions do not choose a UI framework, save provider, implementation model, formulas, or shared market authority.
+These supporting-system directions do not choose a save provider, implementation model, formulas, or shared market authority. The alpha UI stack is recorded under the presentation direction above.
 
 ## Open decisions and proposals
 
@@ -55,4 +55,4 @@ These directions do not choose a UI framework, save provider, implementation mod
 
 Keep these open items distinct from the agreed direction above. The transition overview records the detailed rationale and remaining design questions; update this document when the user confirms further decisions.
 
-The detailed scene and panel layouts, specific art direction, and PixiJS version remain open in [Winemaker05 UI and Visual Concepts](Winemaker05_UI_Visual_Concepts.md) and the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md); their images do not define implementation details.
+The detailed scene and panel layouts and specific art direction can evolve beyond the current placeholders. The images in [Winemaker05 UI and Visual Concepts](Winemaker05_UI_Visual_Concepts.md) and the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md) do not define implementation details.

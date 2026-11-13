@@ -1,13 +1,13 @@
 # Winemaker05 Alpha UI Design Plan
 
-**Status:** Approved alpha UI direction, scope, and intended stack. Exact scene compositions, panel dimensions, and the PixiJS version remain open.
+**Status:** Approved alpha UI direction and scope. A placeholder prototype now implements this direction; see [application flow](../application-flow.md) for verified behavior. Scene compositions and panel dimensions may be refined.
 **Date:** 13 November 2026
 **Goal:** Define a navigable alpha player interface that presents Winemaker05 as a 2.5D winery world with placeholder scenes and panels.
 **Scope:** Shared shell, scene and panel map, navigation, placeholder interactions, and delivery slices. This UI design does not specify time or alert behavior.
-**Constraints:** No application or simulation implementation exists yet. The alpha needs no game data or persistence. Do not copy Winemaker04 data, formulas, lifecycle states, or UI mockup values as 05 facts.
+**Constraints:** At approval, no application or simulation implementation existed. The alpha needs no game data or persistence. Do not copy Winemaker04 data, formulas, lifecycle states, or UI mockup values as 05 facts.
 **Architecture:** Use React/HTML/CSS for shell navigation and panels, with a PixiJS canvas for layered, fixed-composition 2.5D scenes. The alpha demonstrates navigation and presentation only; scene and panel content remains placeholder material until the 05 simulation and persistence are available.
-**Files:** This plan; approved presentation direction in [design.md](../design.md); source concepts in [Winemaker05_UI_Visual_Concepts.md](../Winemaker05_UI_Visual_Concepts.md). Future application source paths depend on stack selection.
-**Verification:** Check document links, decision-status wording, claims against the transition overview, and whitespace. No application checks are available before a stack exists.
+**Files:** This plan; approved presentation direction in [design.md](../design.md); source concepts in [Winemaker05_UI_Visual_Concepts.md](../Winemaker05_UI_Visual_Concepts.md). Current application paths are recorded in [project information](../PROJECT_INFO.md).
+**Verification:** The original design-document checks covered links, decision-status wording, claims against the transition overview, and whitespace. See [project information](../PROJECT_INFO.md) for current application commands.
 
 ## 1. Scope and design basis
 
@@ -162,7 +162,7 @@ Each slice should be reviewable before proceeding. The intended alpha stack is s
 - **Panels and navigation:** display placeholder layouts and route between views; they do not implement gameplay or calculate domain outcomes.
 - **Future 05 simulation:** owns authoritative physical development, sensory projection, evaluation, commercial rules, and game persistence when those systems exist.
 
-The intended alpha stack is selected, but no UI source, package manifest, installed dependencies, or application commands exist yet. Record actual files, ownership, and verified commands in [PROJECT_INFO.md](../PROJECT_INFO.md) as the application is scaffolded.
+The application was scaffolded after this plan was approved. Actual files, ownership, and commands are recorded in [PROJECT_INFO.md](../PROJECT_INFO.md).
 
 ## 9. Alpha acceptance criteria
 
@@ -181,7 +181,7 @@ The intended alpha stack is selected, but no UI source, package manifest, instal
 ## 10. Open decisions retained
 
 - Exact scene art, camera framing and controls for each approved 2.5D scene.
-- PixiJS version and renderer configuration, to be pinned during application scaffolding.
+- Future renderer configuration and visual refinements; the installed PixiJS version is recorded in [PROJECT_INFO.md](../PROJECT_INFO.md).
 - Detailed panel sizing and Activity Manager placement (sidebar or overlay), plus responsive behavior beyond the 1280×720 landscape baseline.
 - Which details should use panels versus focused modals once the 05 information model is available.
 - Exact Management sub-navigation and the contents of its placeholder panels.

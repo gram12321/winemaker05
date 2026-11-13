@@ -4,7 +4,7 @@
 
 **Source conversation:** [Winemaker visual and interface brainstorming](https://chatgpt.com/share/6af6f93e-429c-83ed-ad0e-ffa836fb7557). Local generated concept images are embedded below from [`docs/image_inspiration/`](../image_inspiration/).
 
-**Project context:** Winemaker05 has no application implementation yet. Its intended alpha UI stack is selected, but no dependencies or commands are installed. Use the [transition overview](./Winemaker04_to_05_Transition_Overview.md) for the established 05 simulation direction, 04 observations, and open design questions. This document explores how a future interface could present that design; it does not redefine the wine model or turn examples from Winemaker04 into Winemaker05 facts.
+**Project context:** Winemaker05 now has a placeholder UI prototype; see [application flow](application-flow.md) and [project information](PROJECT_INFO.md) for implemented behavior and tooling. Use the [transition overview](./Winemaker04_to_05_Transition_Overview.md) for the established 05 simulation direction, 04 observations, and open design questions. This document explores how an interface could present that design; it does not redefine the wine model or turn examples from Winemaker04 into Winemaker05 facts.
 
 ---
 
@@ -70,7 +70,7 @@ Not every scene needs the same camera. The discussion suggests a broad isometric
 
 The conversation began with a general game-UI comparison involving PixiJS-style 2.5D and Three.js-style terrain for another game. The transferable point for Winemaker is about readability: can players understand where locations and objects are, what is connected to what, and how expansion or movement relates to the world? For Winemaker, that can mean clearly reading vineyard parcels, production spaces, storage, and the links between an estate and a wider portfolio. The high-level 2.5D presentation is now approved for Winemaker05; the scene concepts below explore ways to express it.
 
-The original discussion did **not** select PixiJS, Three.js, or any other Winemaker05 technology. The later alpha decision selects PixiJS for layered, fixed-composition scenes, with React/HTML/CSS for shell panels and controls. The images are design illustrations, not renderings from an engine; exact scene implementation and PixiJS version remain open.
+The original discussion did **not** select PixiJS, Three.js, or any other Winemaker05 technology. The later alpha decision selects PixiJS for layered, fixed-composition scenes, with React/HTML/CSS for shell panels and controls. The images are design illustrations, not renderings from an engine; the current prototype's version and modules are recorded in [project information](PROJECT_INFO.md).
 
 ## 4. Scene and panel proposals
 
@@ -268,7 +268,7 @@ Roster and employee detail, team overview, task assignment, payroll, hiring cand
 
 ![Winery personnel, teams, hiring, and workload management concept](<../image_inspiration/ChatGPT-billede 13. nov. 2026, 12.57.18-3.png>)
 
-## 7. Remaining questions before implementation
+## 7. Remaining questions for future implementation
 
 These concepts are intended to make later decisions concrete. They do not answer them:
 
@@ -282,6 +282,6 @@ These concepts are intended to make later decisions concrete. They do not answer
 - How much detail should employee competencies, teams, task assignment, morale, recruitment, and development receive?
 - What visual changes should communicate company progress over many years without relying on fixed asset-count or prestige targets?
 - What exact scene composition and camera framing best express the approved scene-specific 2.5D direction for each location, and what prototype should validate readability?
-- Which PixiJS version and renderer configuration best support those interactions, accessibility, and panel integration?
+- Which future renderer configuration best supports those interactions, accessibility, and panel integration?
 
-Calendar behavior and alert handling are outside this UI design and will be resolved by implementation agents. The next design pass should refine the placeholder shell, scenes, panels, and company dashboard before committing to detailed art or code.
+Calendar behavior and alert handling are outside this UI design and will be resolved by implementation agents. Later work can refine the prototype's shell, scenes, panels, and company dashboard before committing to detailed art or simulation behavior.

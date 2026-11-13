@@ -2,7 +2,7 @@
 
 Winemaker05 is the next iteration of the Winemaker wine-production and business simulation. Its simulation and player experience are being redesigned from the [Winemaker04 reference](https://github.com/gram12321/winemaker04).
 
-This repository currently contains design context, working-document templates, and agent tools. There is no application, package manifest, or configured test suite yet. The intended alpha stack is TypeScript, Vite, and React for the application shell, with PixiJS for the layered 2.5D scene layer; implementation and exact dependency versions remain pending.
+The repository contains a navigable alpha UI prototype, design context, working documents, and agent tools. The prototype uses TypeScript, Vite, and React for its shell and PixiJS for placeholder 2.5D scenes. It has no game simulation or persistence yet.
 
 ## Start here
 

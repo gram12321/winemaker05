@@ -1,6 +1,6 @@
 # Testing and Development Tools
 
-There is no 05 application test runner or development server configured yet. Record actual commands and available tools in [PROJECT_INFO.md](PROJECT_INFO.md) when they exist. The following practices carry forward the 04 workflow without assuming its test files, stack, or game state exist in 05.
+The 05 prototype has a Vite development server, TypeScript checking, and a production build, but no configured application test runner. See [PROJECT_INFO.md](PROJECT_INFO.md) for actual commands. The following practices carry forward the 04 workflow without assuming its test files or game state exist in 05.
 
 ## Verification workflow
 
