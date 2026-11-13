@@ -2,6 +2,9 @@
 
 Use this map to explain verified 05 state variables and cross-system dependencies both visually and in text. No 05 application state model or variable relationships have been implemented yet. The [transition overview](Winemaker04_to_05_Transition_Overview.md) describes design direction and 04 examples, not current 05 variables.
 
+Winemaker04 has a deepwike that describe much of the code nicely
+https://deepwiki.com/gram12321/winemaker04 
+
 ## Reading and maintenance rules
 
 - Add relationships only after checking the relevant 05 source. Cite the owning files or symbols and link to [application flow](application-flow.md) for detailed behavior.
