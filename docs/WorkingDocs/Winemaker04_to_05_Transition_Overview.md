@@ -10,7 +10,7 @@ Original chat: https://chatgpt.com/g/g-p-690d10f8c8e88191aabf8da4ef459b8c-winema
 > **Purpose of this document**<br>
 > This document consolidates the full discussion about moving from Winemaker04 to Winemaker05. It is deliberately an extended design overview, **not** a short summary and **not** a final technical specification. It preserves the actual-code findings, gameplay interpretation, proposed architecture, trade-offs, examples, and uncertainties discussed. It separates what **04 does today**, what is **agreed as a direction for 05**, what has been **proposed but not yet decided**, and what requires **further investigation or design**. In particular, the numbers of anchors, structural characteristics, flavor families, and persisted lifecycle states in 04 are **descriptions of the old implementation, not mandatory specifications for 05**.
 >
-> The [system inventory](Winemaker04_to_05_System_Inventory.md) complements this overview with a proposed disposition of Winemaker04 staff, finance, research, market, persistence, progression, and online systems.
+> The [supporting-system migration research](Winemaker04_to_05_System_Migration_Research.md) complements this overview with the authorized inventory and migration direction for systems beyond the central wine loop; its explicitly deferred decisions remain open.
 
 ---
 

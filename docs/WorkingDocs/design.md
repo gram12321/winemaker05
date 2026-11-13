@@ -29,20 +29,20 @@ Record approved product direction and user-facing decisions here; identify propo
 
 See the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md) for the approved placeholder-prototype scope, scene map, navigation walkthroughs, and acceptance criteria. The [UI visual concepts](Winemaker05_UI_Visual_Concepts.md) hold the full brainstorm and generated image references.
 
-## Agreed supporting-system direction
+## Agreed supporting-system migration direction
 
-The [Winemaker04-to-05 system inventory](Winemaker04_to_05_System_Inventory.md) records the detailed 04 subsystem audit, sibling-game comparisons, and proposed responsibility seams. The following migration directions are agreed; they preserve player needs and authored content without requiring a 1:1 code or data-model port.
+The [supporting-system migration research](Winemaker04_to_05_System_Migration_Research.md) is the authorized inventory and migration direction. Its subsystem dispositions identify where to adapt Winemaker04, compare another game, rewrite, avoid an old implementation, or defer a product decision. The inventory's stated dependencies and deferred decisions remain open. Approval establishes direction, not exact formulas, copied code or content, a save provider, a market authority, or a delivery schedule.
 
-- Keep the in-game calendar and player-driven game tick. Winemaker05 will not use a server tick; revisit the orchestration and domain boundaries.
-- Carry Winemaker04 starting scenarios, initial characters and teams, and story content as authored content, mapping fields to 05 and adjusting only where 05 requires it.
-- Keep and refine land and vineyard systems. Keep useful weather ideas and crop/harvest connections while reviewing the effects and redesigning the presentation.
-- Keep most staff-driven activity behavior. Keep staff training within staff progression and work experience.
-- Treat finance, company value and statements, lenders, credit rating, and loans as one finance package, using 04 as the richest winery-specific baseline and comparing narrower sibling implementations for useful patterns.
-- Keep 04 prestige as the baseline and compare selected sibling refinements. Retain useful achievements, production history, and notification behavior; base achievement checks on 05 events, production records on the 05 lot and maturity model, and notifications on dated game events.
-- Do not assume a separate research tree or shared grant, gate, and permanent-effect system. Reassign useful pieces to the 05 domains that own the changed behavior after the wine loop and progression are defined.
-- Preserve the useful NPC, local, and company-to-company market choices and expand product coverage after 05 inventory and trading rules are defined. Keep the ability to save company progress; the provider and schema remain open.
-
-These directions do not choose a UI framework, save provider, implementation model, formulas, or shared market authority.
+- **Calendar and company foundation:** retain a game calendar and company-scoped progress. Redesign tick coordination, state ownership and save boundaries. Review 04 starting scenarios, founders and related authored content for 05 rather than assuming every field or value carries over.
+- **Finance and lending:** retain financial management, transactions, lending, credit and recovery as supporting systems. Redesign asset valuation and loan accounting for 05, comparing the ledger, lender and credit implementations in Industri Clicker and SkiClicker with 04's winery-specific needs. Investigate the research document's source-level accounting and credit risks before reuse. A player-level wallet and the desired depth of individual finance mechanics remain open.
+- **People, teams and activities:** adapt 04's individual staff, recruitment, wages, teams, work allocation and learning through applied work. Redesign activity handlers around 05 domain rules. Compare Industri Clicker's explicit training with 04's experience model; whether to add a separate training activity remains open.
+- **Research, grants and gates:** retain 04's work-driven research projects, funding and progression concepts as the starting point for 05 design. Compare Industri Clicker's typed projects, gates and action grants and VisualIdle's catalog validation. Redesign enforcement at domain boundaries and guard completion and rewards against repetition. The research interface, specific unlocks and the roles of grants and permanent effects remain open.
+- **Land and weather:** adapt useful 04 land, vineyard and site-aware weather mechanics, including forecasts and effects on vineyard conditions, planting, harvesting and grape markets. Reconcile their rules with the 05 vineyard, time and wine-development models.
+- **Inventory, vessels and facilities:** redesign inventory and lot ownership for 05. Adapt useful 04 vessel ownership, allocation, maintenance and market concepts, and connect vessel and storage conditions to the redesigned wine-development engine. Design general buildings and storage facilities for 05; do not treat 04's incomplete building handlers or unconnected vessel-effect calculations as finished features.
+- **Markets and commercial relationships:** adapt 04's shared buy-market concepts, local suppliers, seasonal buyers, bulk sales, customer relationships, wine orders, contracts, forward contracts and cooperative options to 05 goods and commercial rules. Compare TraderGame01 for direct company-to-company settlement and other games for pricing and simulated supply. Distinguish 04's upfront market-custody sales from direct peer-to-peer settlement; design shared-market authority, timing and transaction safety explicitly.
+- **Prestige, achievements and records:** adapt useful company, vineyard and cellar prestige, achievement, production-history and notification concepts to 05 events and lots. Compare Industri Clicker's event and achievement handling; redesign time-driven decay and prevent duplicate rewards. Decide the relationship among Origin Prestige, vineyard reputation and company prestige.
+- **Persistence and support:** preserve company save/load needs while designing explicit failure handling and evaluating 04 Supabase records, VisualIdle snapshots and Industri Clicker's company saves. Retain useful player reference, preference and development-tooling concepts where they fit. Accounts, offline play, cloud synchronization, leaderboards and notification read-state persistence remain open.
+- **Do not carry inactive or obsolete implementations forward as completed systems:** 04's dormant board/share facade, incomplete handlers, old UI, schemas and compatibility wrappers are not 05 features by default. A future full ownership/share system is a separate decision.
 
 ## Open decisions and proposals
 
@@ -52,6 +52,11 @@ These directions do not choose a UI framework, save provider, implementation mod
 - The exact target-shifting rules and scoring formula, including the future role or weight of Taste Quality Index and the relationship between quality, style, and typicity.
 - The cellar's management unit, available operations, blending and lot-splitting rules, and final interaction design.
 - How Origin Prestige relates to evolving vineyard reputation, company prestige, brands, buyers, and contracts.
+- The time model and pacing; how independently advancing companies interact with shared-market time, ownership, pricing, settlement and concurrency.
+- The 05 save provider and authority model; whether accounts, local/offline play, cloud synchronization, leaderboards and durable notification read state are needed.
+- The desired depth of finance, founder arrangements and a player wallet; explicit staff training and scheduling; and which activities require people.
+- The role and presentation of research, grants and permanent effects; which capabilities they gate and how their outcomes interact with other domains.
+- Which product categories, facilities, buildings, 04 scenarios and authored catalogs to include, and whether to add market diffusion, resource substitution or full public-company/share gameplay.
 
 Keep these open items distinct from the agreed direction above. The transition overview records the detailed rationale and remaining design questions; update this document when the user confirms further decisions.
 

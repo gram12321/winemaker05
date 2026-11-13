@@ -186,7 +186,7 @@ The intended alpha stack is selected, but no UI source, package manifest, instal
 - Which details should use panels versus focused modals once the 05 information model is available.
 - Exact Management sub-navigation and the contents of its placeholder panels.
 
-The wine/lot model, wine properties, finance, contracts, equipment, staff, research, and game actions remain in the [transition overview](../Winemaker04_to_05_Transition_Overview.md) and [system inventory](../Winemaker04_to_05_System_Inventory.md). Coding agents will handle calendar content, Advance Time behavior, and alerts. Those concerns are outside this UI design plan.
+The wine/lot model, wine properties, finance, contracts, equipment, staff, research, and game actions remain in the [transition overview](../Winemaker04_to_05_Transition_Overview.md) and [supporting-system research](../Winemaker04_to_05_System_Migration_Research.md). Coding agents will handle calendar content, Advance Time behavior, and alerts. Those concerns are outside this UI design plan.
 
 Resolve these with the corresponding simulation design and record only approved durable UI direction in [design.md](../design.md). Record implemented behavior in [application-flow.md](../application-flow.md) once there is a running application.
 

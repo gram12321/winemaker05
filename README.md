@@ -8,7 +8,7 @@ This repository currently contains design context, working-document templates, a
 
 - [Agent guide](AGENTS.md) — project workflow and boundaries.
 - [Transition overview](docs/WorkingDocs/Winemaker04_to_05_Transition_Overview.md) — established direction, proposals, open decisions, and 04 references.
-- [System migration inventory](docs/WorkingDocs/Winemaker04_to_05_System_Inventory.md) — proposed disposition of Winemaker04 systems beyond the central wine loop.
+- [System migration research](docs/WorkingDocs/Winemaker04_to_05_System_Migration_Research.md) — authorized inventory and migration direction for supporting systems.
 - [Project information](docs/WorkingDocs/PROJECT_INFO.md) — verified repository status and tooling.
 - [Documentation workflow](docs/WorkingDocs/documentation-workflow.md) — what each document owns and when to update it.
 - [Session-start prompt](docs/WorkingDocs/session-start-prompt.md) — reusable context for a new development session.
