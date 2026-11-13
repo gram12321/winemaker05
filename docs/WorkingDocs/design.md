@@ -29,6 +29,21 @@ Record approved product direction and user-facing decisions here; identify propo
 
 See the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md) for the approved placeholder-prototype scope, scene map, navigation walkthroughs, and acceptance criteria. The [UI visual concepts](Winemaker05_UI_Visual_Concepts.md) hold the full brainstorm and generated image references.
 
+## Agreed supporting-system direction
+
+The [Winemaker04-to-05 system inventory](Winemaker04_to_05_System_Inventory.md) records the detailed 04 subsystem audit, sibling-game comparisons, and proposed responsibility seams. The following migration directions are agreed; they preserve player needs and authored content without requiring a 1:1 code or data-model port.
+
+- Keep the in-game calendar and player-driven game tick. Winemaker05 will not use a server tick; revisit the orchestration and domain boundaries.
+- Carry Winemaker04 starting scenarios, initial characters and teams, and story content as authored content, mapping fields to 05 and adjusting only where 05 requires it.
+- Keep and refine land and vineyard systems. Keep useful weather ideas and crop/harvest connections while reviewing the effects and redesigning the presentation.
+- Keep most staff-driven activity behavior. Keep staff training within staff progression and work experience.
+- Treat finance, company value and statements, lenders, credit rating, and loans as one finance package, using 04 as the richest winery-specific baseline and comparing narrower sibling implementations for useful patterns.
+- Keep 04 prestige as the baseline and compare selected sibling refinements. Retain useful achievements, production history, and notification behavior; base achievement checks on 05 events, production records on the 05 lot and maturity model, and notifications on dated game events.
+- Do not assume a separate research tree or shared grant, gate, and permanent-effect system. Reassign useful pieces to the 05 domains that own the changed behavior after the wine loop and progression are defined.
+- Preserve the useful NPC, local, and company-to-company market choices and expand product coverage after 05 inventory and trading rules are defined. Keep the ability to save company progress; the provider and schema remain open.
+
+These directions do not choose a UI framework, save provider, implementation model, formulas, or shared market authority.
+
 ## Open decisions and proposals
 
 - The exact anchor fields and counts, mutable-state vocabulary, six-characteristic starting set, and taste-family/descriptor taxonomy. The 12 anchors, six characteristics, 14 taste families, and 26 descriptors in Winemaker04 are references, not fixed 05 requirements.
