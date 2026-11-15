@@ -11,5 +11,7 @@ Record stable, agreed domain language here. The definitions below describe 05 de
 | Raw Material Anchors | The inherited potential established by the raw material; exact fields and limits remain to be designed. |
 | Development State / Processing Anchors | The mutable side of wine development and processing; its final name and representation remain open. |
 | Moving-target evaluation | A configurable way to evaluate a profile against contextual targets; structure and taste are intended to share the framework. |
+| Physical lot | A coherent portion of material with its own wine-development state; portions in different vessel or storage conditions develop as separate lots with shared lineage. Quantity and placement are owned by inventory. |
+| Market clock | Server-owned time used for shared listing expiry and market-side development, distinct from independently advanced company winery calendars. Its relation to real time remains to be balanced. |
 
 Add naming rules, stable parameters, or further terms only after they are agreed. Keep implementation-specific rules and current values in their owning source and [application flow](application-flow.md).

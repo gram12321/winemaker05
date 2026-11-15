@@ -1,5 +1,7 @@
 # Winemaker 04 → 05: Simulation Redesign Overview
 
+> **Later decisions:** On 15 November 2026 the user accepted the 43 recommendations recorded in [design.md](design.md#agreed-architecture-and-product-decisions--15-november-2026). That record supersedes conflicting proposal/open labels in this historical overview; its explicitly deferred details remain open.
+
 Original chat: https://chatgpt.com/g/g-p-690d10f8c8e88191aabf8da4ef459b8c-winemaker-0-4-game-creation/c/6af60090-f84c-83ed-8c51-d84ad4cbb4d9
 
 **Status:** Revised working design overview — transition from analysis of Winemaker04 to the proposed architecture and gameplay direction of Winemaker05<br>
