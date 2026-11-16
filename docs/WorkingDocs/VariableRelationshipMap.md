@@ -1,6 +1,6 @@
 # Variable Relationship Map
 
-Use this map to explain verified 05 state variables and cross-system dependencies both visually and in text. No 05 application state model or variable relationships have been implemented yet. The [transition overview](Winemaker04_to_05_Transition_Overview.md) describes design direction and 04 examples, not current 05 variables.
+Use this map to explain verified 05 state variables and cross-system dependencies both visually and in text. The [transition overview](Winemaker04_to_05_Transition_Overview.md) describes design direction and 04 examples, not current 05 behavior.
 
 Winemaker04 has a deepwike that describe much of the code nicely
 https://deepwiki.com/gram12321/winemaker04 
@@ -13,23 +13,25 @@ https://deepwiki.com/gram12321/winemaker04
 - Update diagrams and their textual descriptions together when a cross-domain dependency changes. Record meaningful invariants, boundaries, and player-facing uses; keep isolated implementation details in the owning module or document.
 - Keep proposed models clearly separate from this verified map. Do not fill it with 04 variables, counts, or formulas.
 
-## Visual diagram template
-
-The following is a generic placeholder showing the format, not a 05 design or implemented flow. Replace it with source-verified diagrams as systems are added; use multiple focused diagrams when one becomes too crowded.
+## Calendar and company transition
 
 ```mermaid
 flowchart LR
-  INPUT["Input / source (placeholder)"] --> RULE["Rule or process (placeholder)"]
-  RULE --> OUTPUT["State or result (placeholder)"]
-  OUTPUT --> CONSUMER["Consumer or presentation (placeholder)"]
+  RULES["Calendar rules: weeks / season, seasons / year"] --> ADVANCE["time.advance: plan one week"]
+  DATE["Current company calendar date"] --> ADVANCE
+  ADVANCE --> NEXT["Candidate next calendar date"]
+  ADVANCE --> BOUNDARY["Season / year boundary event"]
+  NEXT --> COMMIT["Company authority: revision + atomic save"]
+  COMMIT --> SNAPSHOT["Committed company snapshot"]
 ```
 
 ## Textual relationship index
 
 | Variable or group | Owner and state kind | Inputs and transformation | Consumers / changing actions | 05 source |
 |---|---|---|---|---|
-| No verified entries yet | — | — | — | — |
+| Calendar rules and date | Calendar; part of company state | Explicit weeks per season, seasons per year and an initial date are validated. A time command plans one week and calculates boundary flags. | The company authority receives a candidate state and event; the UI is not yet connected to them. | [Calendar.ts](../../src/game/calendar/Calendar.ts), [AdvanceTime.ts](../../src/game/simulation/AdvanceTime.ts) |
+| Company revision | Authority and storage; committed state metadata | Each accepted command is committed with the expected revision and a receipt. | Company sessions publish a confirmed snapshot; stale writes are rejected. | [session.ts](../../src/authority/session.ts), [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts) |
 
 ## Timing, invariants, and visible effects
 
-Add source-verified timing or snapshot distinctions, cross-domain invariants, and player-facing surfaces here as they become relevant. Explain each diagram in text so the map remains useful without a Mermaid renderer.
+The calendar receives one explicit `time.advance` command and calculates the next week, plus whether that step crosses a season or year boundary. It does not mutate the committed state. The authority can then commit the whole candidate with a new revision; a failed or unresolved commit does not publish that candidate. The current prototype does not display this calendar, and no other domain phases are implemented yet.

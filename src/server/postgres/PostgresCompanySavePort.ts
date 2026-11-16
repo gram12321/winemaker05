@@ -1,0 +1,477 @@
+import type { Pool, PoolClient, QueryResultRow } from 'pg';
+
+import {
+  COMPANY_SAVE_VERSION,
+  type AttemptResolution,
+  type CommandReceipt,
+  type CommitResult,
+  type CompanySavePort,
+  type LoadResult,
+  type PendingAttempt,
+  type ReceiptResult,
+} from '../../authority/contracts';
+import { readCompanyState, type CompanyState } from '../../game/core';
+
+type CommitInput = Parameters<CompanySavePort['commit']>[0];
+type ResolveInput = Parameters<CompanySavePort['resolveAttempt']>[0];
+
+export interface CreateCompanyInput {
+  readonly companyId: string;
+  readonly state: CompanyState;
+}
+
+export type CreateCompanyResult =
+  | { readonly kind: 'created' }
+  | { readonly kind: 'not-created' }
+  | { readonly kind: 'invalid'; readonly details: string }
+  | { readonly kind: 'unknown' };
+
+interface CompanyRow extends QueryResultRow {
+  schema_version: number;
+  revision: string | number;
+  state: unknown;
+}
+
+interface LoadedCompanyRow extends CompanyRow {
+  pending_attempt_id: string | null;
+  pending_command_id: string | null;
+  pending_fingerprint: string | null;
+}
+
+interface PendingRow extends QueryResultRow {
+  attempt_id: string;
+  command_id: string;
+  fingerprint: string;
+}
+
+interface ReceiptRow extends QueryResultRow {
+  company_id: string;
+  command_id: string;
+  attempt_id: string;
+  fingerprint: string;
+  revision: string | number;
+}
+
+interface FenceRow extends QueryResultRow {
+  command_id: string;
+  fingerprint: string;
+}
+
+const unavailable = 'The company storage authority is unavailable.';
+
+function present(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function safeRevision(value: unknown): number | undefined {
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function receiptFromRow(row: ReceiptRow): CommandReceipt | undefined {
+  const revision = safeRevision(row.revision);
+  if (!present(row.company_id) || !present(row.command_id) || !present(row.fingerprint) || revision === undefined || revision === 0) {
+    return undefined;
+  }
+  return Object.freeze({ companyId: row.company_id, commandId: row.command_id, fingerprint: row.fingerprint, revision });
+}
+
+function pendingFromRow(companyId: string, row: PendingRow): PendingAttempt | undefined {
+  if (!present(row.attempt_id) || !present(row.command_id) || !present(row.fingerprint)) return undefined;
+  return Object.freeze({ companyId, attemptId: row.attempt_id, commandId: row.command_id, fingerprint: row.fingerprint });
+}
+
+function validateState(value: unknown): { readonly json: string } | { readonly details: string } {
+  try {
+    const result = readCompanyState(value);
+    if (result.kind === 'invalid') return { details: result.reasons.join(' ') };
+    return { json: JSON.stringify(result.state) };
+  } catch {
+    return { details: 'The company state could not be validated.' };
+  }
+}
+
+/**
+ * Server-only adapter. `ownerId` must come from a verified authentication
+ * principal, never a client-selected company or account ID. The host runs the
+ * game rules and supplies `next`; clients must not be able to call this port,
+ * obtain its pool credentials, or access its tables through a direct API.
+ *
+ * The schema enables RLS without client policies. Table owners and privileged
+ * roles can bypass RLS, so these explicit ownership predicates remain required.
+ * The pool must point to the authoritative primary, not a read replica.
+ */
+export class PostgresCompanySavePort implements CompanySavePort {
+  constructor(private readonly pool: Pool, private readonly ownerId: string) {
+    if (!present(ownerId)) throw new Error('An authenticated owner ID is required.');
+  }
+
+  /** Explicit insert only; collisions never replace even invalid saved data. */
+  async createCompany(input: CreateCompanyInput): Promise<CreateCompanyResult> {
+    if (!input || !present(input.companyId)) return { kind: 'invalid', details: 'A company ID is required.' };
+    const validated = validateState(input.state);
+    if ('details' in validated) return { kind: 'invalid', details: validated.details };
+    try {
+      const inserted = await this.pool.query(
+        `INSERT INTO winemaker05_private.company_saves
+           (company_id, owner_id, schema_version, revision, state)
+         VALUES ($1, $2, $3, 0, $4::jsonb)
+         ON CONFLICT (company_id) DO NOTHING RETURNING company_id`,
+        [input.companyId, this.ownerId, COMPANY_SAVE_VERSION, validated.json],
+      );
+      return inserted.rowCount === 1 ? { kind: 'created' } : { kind: 'not-created' };
+    } catch {
+      // An autocommit INSERT may have succeeded even when its response was lost.
+      return { kind: 'unknown' };
+    }
+  }
+
+  async load(companyId: string): Promise<LoadResult> {
+    if (!present(companyId)) return { kind: 'missing' };
+    try {
+      const result = await this.pool.query<LoadedCompanyRow>(
+        `SELECT c.schema_version, c.revision, c.state, p.attempt_id AS pending_attempt_id,
+                p.command_id AS pending_command_id, p.fingerprint AS pending_fingerprint
+         FROM winemaker05_private.company_saves c
+         LEFT JOIN winemaker05_private.pending_attempts p
+           ON p.company_id = c.company_id AND p.owner_id = c.owner_id
+         WHERE c.company_id = $1 AND c.owner_id = $2`,
+        [companyId, this.ownerId],
+      );
+      const row = result.rows[0];
+      if (!row) return { kind: 'missing' };
+      if (typeof row.schema_version !== 'number' || !Number.isSafeInteger(row.schema_version)) {
+        return { kind: 'invalid', details: 'The stored save version is invalid.' };
+      }
+      if (row.schema_version !== COMPANY_SAVE_VERSION) return { kind: 'unsupported', version: row.schema_version };
+      const revision = safeRevision(row.revision);
+      if (revision === undefined) return { kind: 'invalid', details: 'The stored company revision is invalid.' };
+      const state = readCompanyState(row.state);
+      if (state.kind === 'invalid') return { kind: 'invalid', details: state.reasons.join(' ') };
+      const snapshot = Object.freeze({ schemaVersion: COMPANY_SAVE_VERSION, companyId, revision, state: state.state });
+      if (row.pending_attempt_id === null && row.pending_command_id === null && row.pending_fingerprint === null) {
+        return { kind: 'loaded', snapshot };
+      }
+      const pending = pendingFromRow(companyId, {
+        attempt_id: row.pending_attempt_id!, command_id: row.pending_command_id!, fingerprint: row.pending_fingerprint!,
+      });
+      return pending ? { kind: 'loaded', snapshot, pending }
+        : { kind: 'invalid', details: 'The stored pending attempt is invalid.' };
+    } catch {
+      return { kind: 'unavailable', details: unavailable };
+    }
+  }
+
+  async getReceipt(companyId: string, commandId: string): Promise<ReceiptResult> {
+    if (!present(companyId) || !present(commandId)) return { kind: 'absent' };
+    try {
+      const result = await this.pool.query<ReceiptRow>(
+        `SELECT r.company_id, r.command_id, r.attempt_id, r.fingerprint, r.revision
+         FROM winemaker05_private.command_receipts r
+         JOIN winemaker05_private.company_saves c
+           ON c.company_id = r.company_id AND c.owner_id = r.owner_id
+         WHERE c.company_id = $1 AND c.owner_id = $2 AND r.command_id = $3`,
+        [companyId, this.ownerId, commandId],
+      );
+      const row = result.rows[0];
+      if (!row) return { kind: 'absent' };
+      const receipt = receiptFromRow(row);
+      return receipt ? { kind: 'found', receipt } : { kind: 'unavailable', details: 'The stored command receipt is invalid.' };
+    } catch {
+      return { kind: 'unavailable', details: unavailable };
+    }
+  }
+
+  async commit(input: CommitInput): Promise<CommitResult> {
+    if (
+      !input || !present(input.companyId) || !present(input.attemptId) || !input.receipt ||
+      !present(input.receipt.commandId) || !present(input.receipt.fingerprint) || input.receipt.companyId !== input.companyId
+    ) return { kind: 'failed', details: 'A company, attempt and command receipt are required.' };
+
+    // Defer candidate validation errors until after receipt lookup: a replay
+    // remains idempotent even when its proposed revision or state is stale.
+    const { companyId, attemptId } = input;
+    const { commandId, fingerprint } = input.receipt;
+    const candidate = validateState(input.next);
+    const expected = safeRevision(input.expectedRevision);
+    const nextRevision = safeRevision(input.receipt.revision);
+    const reservation = await this.reserveAttempt(input, candidate, expected, nextRevision);
+    if (reservation.kind !== 'reserved') return reservation;
+
+    // The reservation is already durable. Any error until a confirmed apply
+    // or fence is uncertain, even if the second transaction never committed.
+    let client: PoolClient | undefined;
+    let transactionOpen = false;
+    let commitSent = false;
+    let destroy = false;
+    try {
+      client = await this.pool.connect();
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const company = await this.lockCompany(client, companyId);
+      if (!company) return await this.rollbackWith(client, { kind: 'unknown' });
+
+      const existing = await this.findReceipt(client, companyId, commandId);
+      if (existing) {
+        const receipt = receiptFromRow(existing);
+        if (!receipt) return await this.rollbackWith(client, { kind: 'unknown' });
+        return await this.rollbackWith(client, receipt.fingerprint === fingerprint
+          ? { kind: 'already-committed', receipt }
+          : { kind: 'command-id-mismatch' });
+      }
+      const fence = await this.findFence(client, companyId, attemptId);
+      if (fence) return await this.rollbackWith(client, { kind: 'failed', details: 'The attempt was fenced.' });
+      const pendingRow = await this.findPending(client, companyId);
+      const pending = pendingRow && pendingFromRow(companyId, pendingRow);
+      if (!pending || pending.attemptId !== attemptId || pending.commandId !== commandId || pending.fingerprint !== fingerprint) {
+        // Absence is not a fence and does not establish that an earlier
+        // request cannot still complete. Retain uncertainty for recovery.
+        return await this.rollbackWith(client, { kind: 'unknown' });
+      }
+      const revision = safeRevision(company.revision);
+      let failure: CommitResult | undefined;
+      if (company.schema_version !== COMPANY_SAVE_VERSION || revision === undefined || 'details' in validateState(company.state)) {
+        failure = { kind: 'failed', details: 'The stored company save is invalid or unsupported.' };
+      } else if (expected === undefined || nextRevision === undefined || expected === Number.MAX_SAFE_INTEGER || nextRevision !== expected + 1) {
+        failure = { kind: 'failed', details: 'The proposed company revision is invalid.' };
+      } else if (revision !== expected) {
+        failure = { kind: 'conflict', currentRevision: revision };
+      } else if ('details' in candidate) {
+        failure = { kind: 'failed', details: candidate.details };
+      }
+      if (failure) {
+        await this.insertFence(client, pending);
+        await this.deletePending(client, companyId, attemptId);
+        commitSent = true;
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return failure;
+      }
+      if (!('json' in candidate) || nextRevision === undefined) return await this.rollbackWith(client, { kind: 'unknown' });
+
+      await client.query(
+        `UPDATE winemaker05_private.company_saves SET state = $3::jsonb, revision = $4
+         WHERE company_id = $1 AND owner_id = $2`,
+        [companyId, this.ownerId, candidate.json, nextRevision],
+      );
+      await client.query(
+        `INSERT INTO winemaker05_private.command_receipts
+           (company_id, owner_id, command_id, attempt_id, fingerprint, revision)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [companyId, this.ownerId, commandId, attemptId, fingerprint, nextRevision],
+      );
+      await this.deletePending(client, companyId, attemptId);
+      commitSent = true;
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { kind: 'committed' };
+    } catch {
+      destroy = true;
+      if (client && transactionOpen && !commitSent) await this.tryRollback(client);
+      return { kind: 'unknown' };
+    } finally {
+      client?.release(destroy);
+    }
+  }
+
+  private async reserveAttempt(
+    input: CommitInput,
+    candidate: ReturnType<typeof validateState>,
+    expected: number | undefined,
+    nextRevision: number | undefined,
+  ): Promise<CommitResult | { readonly kind: 'reserved' }> {
+    const { companyId, attemptId } = input;
+    const { commandId, fingerprint } = input.receipt;
+    let client: PoolClient | undefined;
+    let transactionOpen = false;
+    let commitSent = false;
+    let destroy = false;
+    try {
+      client = await this.pool.connect();
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const company = await this.lockCompany(client, companyId);
+      if (!company) return await this.rollbackWith(client, { kind: 'failed', details: 'The company is missing or unavailable.' });
+      const existing = await this.findReceipt(client, companyId, commandId);
+      if (existing) {
+        const receipt = receiptFromRow(existing);
+        if (!receipt) return await this.rollbackWith(client, { kind: 'failed', details: 'The stored command receipt is invalid.' });
+        return await this.rollbackWith(client, receipt.fingerprint === fingerprint
+          ? { kind: 'already-committed', receipt } : { kind: 'command-id-mismatch' });
+      }
+      if (await this.findReceiptByAttempt(client, companyId, attemptId)) {
+        return await this.rollbackWith(client, { kind: 'failed', details: 'The attempt ID was already used.' });
+      }
+      if (await this.findFence(client, companyId, attemptId)) {
+        return await this.rollbackWith(client, { kind: 'failed', details: 'The attempt was fenced.' });
+      }
+      const pendingRow = await this.findPending(client, companyId);
+      if (pendingRow) {
+        const pending = pendingFromRow(companyId, pendingRow);
+        if (!pending) return await this.rollbackWith(client, { kind: 'failed', details: 'The stored pending attempt is invalid.' });
+        if (pending.attemptId !== attemptId || pending.commandId !== commandId || pending.fingerprint !== fingerprint) {
+          return await this.rollbackWith(client, { kind: 'pending', pending });
+        }
+        // A duplicate delivery of the same trusted attempt may continue. The
+        // apply transaction serializes and checks the receipt again.
+        return await this.rollbackWith(client, { kind: 'reserved' });
+      }
+      const revision = safeRevision(company.revision);
+      if (company.schema_version !== COMPANY_SAVE_VERSION || revision === undefined || 'details' in validateState(company.state)) {
+        return await this.rollbackWith(client, { kind: 'failed', details: 'The stored company save is invalid or unsupported.' });
+      }
+      if (expected === undefined || nextRevision === undefined || expected === Number.MAX_SAFE_INTEGER || nextRevision !== expected + 1) {
+        return await this.rollbackWith(client, { kind: 'failed', details: 'The proposed company revision is invalid.' });
+      }
+      if (revision !== expected) return await this.rollbackWith(client, { kind: 'conflict', currentRevision: revision });
+      if ('details' in candidate) return await this.rollbackWith(client, { kind: 'failed', details: candidate.details });
+      await client.query(
+        `INSERT INTO winemaker05_private.pending_attempts
+           (company_id, owner_id, attempt_id, command_id, fingerprint) VALUES ($1, $2, $3, $4, $5)`,
+        [companyId, this.ownerId, attemptId, commandId, fingerprint],
+      );
+      commitSent = true;
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { kind: 'reserved' };
+    } catch {
+      destroy = true;
+      if (client && transactionOpen && !commitSent) await this.tryRollback(client);
+      // This may be a duplicate delivery of an already-reserved attempt. A
+      // database error before this invocation's COMMIT does not prove that a
+      // concurrent copy cannot still commit the same attempt.
+      return { kind: 'unknown' };
+    } finally {
+      client?.release(destroy);
+    }
+  }
+
+  async resolveAttempt(input: ResolveInput): Promise<AttemptResolution> {
+    if (!input || !present(input.companyId) || !present(input.commandId) || !present(input.fingerprint) || !present(input.attemptId)) {
+      return { kind: 'unavailable', details: 'A company, command and attempt are required.' };
+    }
+    const { companyId, commandId, fingerprint, attemptId } = input;
+    let client: PoolClient | undefined;
+    let transactionOpen = false;
+    let commitSent = false;
+    let destroy = false;
+    try {
+      client = await this.pool.connect();
+      await client.query('BEGIN');
+      transactionOpen = true;
+      const company = await this.lockCompany(client, companyId);
+      if (!company) return await this.rollbackWith(client, { kind: 'unavailable', details: 'The company is missing or unavailable.' });
+
+      const existing = await this.findReceipt(client, companyId, commandId);
+      const receipt = existing && receiptFromRow(existing);
+      if (existing && !receipt) {
+        return await this.rollbackWith(client, { kind: 'unavailable', details: 'The stored command receipt is invalid.' });
+      }
+      if (receipt && receipt.fingerprint === fingerprint) {
+        return await this.rollbackWith(client, { kind: 'committed', receipt });
+      }
+      if (await this.findReceiptByAttempt(client, companyId, attemptId)) {
+        return await this.rollbackWith(client, { kind: 'unavailable', details: 'The attempt ID belongs to another command.' });
+      }
+      const fence = await this.findFence(client, companyId, attemptId);
+      if (fence && (fence.command_id !== commandId || fence.fingerprint !== fingerprint)) {
+        return await this.rollbackWith(client, { kind: 'unavailable', details: 'The attempt ID belongs to another command.' });
+      }
+      const pendingRow = await this.findPending(client, companyId);
+      const pending = pendingRow && pendingFromRow(companyId, pendingRow);
+      if (pendingRow && !pending) {
+        return await this.rollbackWith(client, { kind: 'unavailable', details: 'The stored pending attempt is invalid.' });
+      }
+      if (pending && pending.attemptId === attemptId &&
+          (pending.commandId !== commandId || pending.fingerprint !== fingerprint)) {
+        return await this.rollbackWith(client, { kind: 'unavailable', details: 'The attempt ID belongs to another command.' });
+      }
+      if (!fence) {
+        await this.insertFence(client, { companyId, attemptId, commandId, fingerprint });
+      }
+      if (pending?.attemptId === attemptId) await this.deletePending(client, companyId, attemptId);
+      // Never return not-committed until this fence is durably acknowledged.
+      commitSent = true;
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return receipt ? { kind: 'command-id-mismatch', receipt } : { kind: 'not-committed' };
+    } catch {
+      destroy = true;
+      if (client && transactionOpen && !commitSent) await this.tryRollback(client);
+      return { kind: 'unavailable', details: unavailable };
+    } finally {
+      client?.release(destroy);
+    }
+  }
+
+  private async lockCompany(client: PoolClient, companyId: string): Promise<CompanyRow | undefined> {
+    const result = await client.query<CompanyRow>(
+      `SELECT schema_version, revision, state FROM winemaker05_private.company_saves
+       WHERE company_id = $1 AND owner_id = $2 FOR UPDATE`,
+      [companyId, this.ownerId],
+    );
+    return result.rows[0];
+  }
+
+  private async findReceipt(client: PoolClient, companyId: string, commandId: string): Promise<ReceiptRow | undefined> {
+    const result = await client.query<ReceiptRow>(
+      `SELECT company_id, command_id, attempt_id, fingerprint, revision FROM winemaker05_private.command_receipts
+       WHERE company_id = $1 AND owner_id = $2 AND command_id = $3`,
+      [companyId, this.ownerId, commandId],
+    );
+    return result.rows[0];
+  }
+
+  private async findReceiptByAttempt(client: PoolClient, companyId: string, attemptId: string): Promise<ReceiptRow | undefined> {
+    const result = await client.query<ReceiptRow>(
+      `SELECT company_id, command_id, attempt_id, fingerprint, revision FROM winemaker05_private.command_receipts
+       WHERE company_id = $1 AND owner_id = $2 AND attempt_id = $3`,
+      [companyId, this.ownerId, attemptId],
+    );
+    return result.rows[0];
+  }
+
+  private async findFence(client: PoolClient, companyId: string, attemptId: string): Promise<FenceRow | undefined> {
+    const result = await client.query<FenceRow>(
+      `SELECT command_id, fingerprint FROM winemaker05_private.attempt_fences
+       WHERE company_id = $1 AND owner_id = $2 AND attempt_id = $3`,
+      [companyId, this.ownerId, attemptId],
+    );
+    return result.rows[0];
+  }
+
+  private async findPending(client: PoolClient, companyId: string): Promise<PendingRow | undefined> {
+    const result = await client.query<PendingRow>(
+      `SELECT attempt_id, command_id, fingerprint FROM winemaker05_private.pending_attempts
+       WHERE company_id = $1 AND owner_id = $2`, [companyId, this.ownerId],
+    );
+    return result.rows[0];
+  }
+
+  private async insertFence(client: PoolClient, pending: PendingAttempt): Promise<void> {
+    await client.query(
+      `INSERT INTO winemaker05_private.attempt_fences
+         (company_id, owner_id, attempt_id, command_id, fingerprint) VALUES ($1, $2, $3, $4, $5)`,
+      [pending.companyId, this.ownerId, pending.attemptId, pending.commandId, pending.fingerprint],
+    );
+  }
+
+  private async deletePending(client: PoolClient, companyId: string, attemptId: string): Promise<void> {
+    await client.query(
+      `DELETE FROM winemaker05_private.pending_attempts
+       WHERE company_id = $1 AND owner_id = $2 AND attempt_id = $3`, [companyId, this.ownerId, attemptId],
+    );
+  }
+
+  private async rollbackWith<T>(client: PoolClient, result: T): Promise<T> {
+    await client.query('ROLLBACK');
+    return result;
+  }
+
+  private async tryRollback(client: PoolClient): Promise<void> {
+    try { await client.query('ROLLBACK'); } catch { /* The connection is discarded. */ }
+  }
+}

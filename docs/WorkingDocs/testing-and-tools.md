@@ -1,6 +1,6 @@
 # Testing and Development Tools
 
-There is no 05 application test runner or development server configured yet. Record actual commands and available tools in [PROJECT_INFO.md](PROJECT_INFO.md) when they exist. The following practices carry forward the 04 workflow without assuming its test files, stack, or game state exist in 05.
+The 05 repository uses Vitest for focused simulation, authority, API, PostgreSQL and prototype-UI checks, and Playwright for the desktop prototype flow. Commands and the opt-in local database test setup are recorded in [PROJECT_INFO.md](PROJECT_INFO.md). UI tests that mock Pixi or run in a simulated DOM do not establish actual canvas rendering or a browser layout; check those separately when relevant. The Playwright suite requires Chromium; `npx playwright install chromium` can install it when needed.
 
 ## Verification workflow
 
