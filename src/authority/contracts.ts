@@ -1,10 +1,6 @@
 import type { CompanyState, DomainEvent, GameCommand } from '../game/core';
 
-/** Version 1 is a new 05 format; it is not a Winemaker04 save format. */
-export const COMPANY_SAVE_VERSION = 1 as const;
-
 export interface CompanySnapshot {
-  readonly schemaVersion: typeof COMPANY_SAVE_VERSION;
   readonly companyId: string;
   readonly revision: number;
   readonly state: CompanyState;
@@ -20,7 +16,7 @@ export interface CommandEnvelope {
 export interface CommandReceipt {
   readonly companyId: string;
   readonly commandId: string;
-  /** Versioned canonical semantic command, excluding expectedRevision. */
+  /** Canonical semantic command, excluding expectedRevision. */
   readonly fingerprint: string;
   readonly revision: number;
 }
@@ -36,7 +32,6 @@ export interface PendingAttempt {
 export type LoadFailure =
   | { readonly kind: 'missing' }
   | { readonly kind: 'invalid'; readonly details: string }
-  | { readonly kind: 'unsupported'; readonly version: number }
   | { readonly kind: 'unavailable'; readonly details: string };
 
 export type LoadResult =
@@ -71,7 +66,7 @@ export type AttemptResolution =
  * Bind the provider to that trusted identity and enforce ownership at every
  * load, receipt, commit and resolution; a company ID is not authorization.
  * The host must run the rules itself, never accept `next` from a client.
- * A provider must validate the entire versioned state on load, preserve invalid
+ * A provider must validate the entire current state on load, preserve invalid
  * data, and return a coherent authoritative revision. Receipt lookup and load
  * must observe authoritative data rather than an eventually consistent cache.
  *
@@ -88,13 +83,14 @@ export type AttemptResolution =
  * did not commit; uncertainty must return `unknown` instead.
  *
  * Attempt IDs are unique trusted-service-generated IDs, distinct from the
- * player's stable command ID. A commit must check a durable attempt fence as
- * part of its transaction. resolveAttempt's `not-committed` is stronger than
- * an absent receipt: it must atomically fence that attempt and guarantee it
- * cannot reserve or commit later, even if its original request has not started yet. A new
- * attempt may retry the same command ID after such a fence. A resolution that
- * finds a different command under the same ID must also fence this attempt
- * before returning `command-id-mismatch`.
+ * player's stable command ID. A commit must check durable attempt and command
+ * fences as part of its transaction. `not-committed` must atomically fence the
+ * whole command ID, including any same-intent reservation, so no delayed
+ * delivery can later commit it. A subsequent player decision needs a new
+ * command ID. A competing reservation with a different payload must not be
+ * canceled; wait for it to settle. A resolution that finds a different command
+ * receipt under the same ID must also fence this attempt before returning
+ * `command-id-mismatch`.
  * An absent receipt or pending row alone does not establish a fence. A failed
  * or unacknowledged reservation/apply commit must remain `unknown` until the
  * receipt or a durably acknowledged fence resolves the attempt.

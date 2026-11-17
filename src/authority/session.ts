@@ -1,6 +1,5 @@
 import { decideCommand, readCompanyState } from '../game/core';
 import {
-  COMPANY_SAVE_VERSION,
   type CommandEnvelope,
   type CommandReceipt,
   type CompanySavePort,
@@ -381,11 +380,8 @@ export class CompanySession {
     } catch (error) {
       return { kind: 'invalid', details: details(error) };
     }
-    if (Number.isSafeInteger(copy.schemaVersion) && copy.schemaVersion > 0 && copy.schemaVersion !== COMPANY_SAVE_VERSION) {
-      return { kind: 'unsupported', version: copy.schemaVersion };
-    }
     if (
-      copy.schemaVersion !== COMPANY_SAVE_VERSION || copy.companyId !== companyId ||
+      copy.companyId !== companyId ||
       !validRevision(copy.revision) || copy.revision < minimumRevision ||
       !copy.state || typeof copy.state !== 'object'
     ) return { kind: 'invalid', details: 'The storage authority returned an invalid company snapshot.' };

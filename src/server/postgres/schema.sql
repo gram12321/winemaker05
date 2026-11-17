@@ -1,5 +1,9 @@
--- Initial Winemaker05 candidate schema, not a Winemaker04 migration.
--- Run once by the deployment owner; this script does not grant client access.
+-- Recreate the current Winemaker05 development schema.
+-- WARNING: this deletes every table and company save in winemaker05_private.
+-- Use only for pre-release development data that may be discarded. Do not run
+-- against production. Winemaker05 has no older-save compatibility or upgrade
+-- path; change this schema directly while the game is not live.
+-- This script does not grant client access.
 --
 -- Only a trusted command service may hold the database credentials. The host
 -- authenticates each request and binds its verified principal to a port
@@ -8,13 +12,13 @@
 -- RLS below denies roles with table access but no policy. Owners, superusers,
 -- and BYPASSRLS roles can bypass RLS, so RLS is not a substitute for the
 -- owner-scoped queries or for keeping a privileged connection server-only.
+DROP SCHEMA IF EXISTS winemaker05_private CASCADE;
 CREATE SCHEMA winemaker05_private;
 REVOKE ALL ON SCHEMA winemaker05_private FROM PUBLIC;
 
 CREATE TABLE winemaker05_private.company_saves (
   company_id text PRIMARY KEY CHECK (length(company_id) > 0),
   owner_id text NOT NULL CHECK (length(owner_id) > 0),
-  schema_version integer NOT NULL,
   revision bigint NOT NULL CHECK (revision BETWEEN 0 AND 9007199254740991),
   state jsonb NOT NULL,
   UNIQUE (company_id, owner_id)
@@ -36,7 +40,7 @@ CREATE TABLE winemaker05_private.command_receipts (
 
 -- At most one in-flight write per company. This survives a lost service
 -- response and is removed only by the atomic state/receipt commit or by an
--- explicitly acknowledged fence of the same attempt.
+-- explicitly acknowledged fence of the same command intent.
 CREATE TABLE winemaker05_private.pending_attempts (
   company_id text PRIMARY KEY,
   owner_id text NOT NULL,
@@ -48,6 +52,8 @@ CREATE TABLE winemaker05_private.pending_attempts (
     ON DELETE CASCADE
 );
 
+-- Also stores terminal command fences using the server-reserved `command:`
+-- attempt-ID prefix; normal trusted attempt IDs must never use that prefix.
 CREATE TABLE winemaker05_private.attempt_fences (
   company_id text NOT NULL,
   owner_id text NOT NULL,

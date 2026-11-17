@@ -2,9 +2,11 @@
 
 **Status:** Research-backed proposal, 14 November 2026; the user accepted the 43 numbered recommendations discussed from it on 15 November 2026. The authoritative decision record is [design.md](design.md#agreed-architecture-and-product-decisions--15-november-2026). This document is not a description of implemented 05 code.
 
+**17 November update:** The pre-release policy in [design.md](design.md) supersedes earlier save-version and compatibility proposals. Use only the current schema; do not add version checks, legacy handling or save migrations.
+
 **Purpose:** Define a concrete code architecture for the company simulation: who owns state, how commands and game time move through the system, where changes commit, and how presentation and shared services connect. The [transition overview](Winemaker04_to_05_Transition_Overview.md) owns the wine-design context; the [supporting-system research](Winemaker04_to_05_System_Migration_Research.md) owns the broader migration inventory. This proposal turns their directions into candidate code contracts and ordering, without deciding their open gameplay questions.
 
-**Scope boundary:** Winemaker05 currently has no application source or save provider. The intended stack is TypeScript, Vite, React, and PixiJS; none is installed here yet. The approved [alpha UI plan](plans/2026-11-13-alpha-ui-design-plan.md) remains a navigation and placeholder prototype with no simulation or persistence requirement. The architecture below is for the subsequent playable systems, not an expansion of that alpha.
+**Scope boundary at the time of this proposal:** Winemaker05 had no application source or save provider yet. The intended stack was TypeScript, Vite, React, and PixiJS. The approved [alpha UI plan](plans/2026-11-13-alpha-ui-design-plan.md) was a navigation and placeholder prototype with no simulation or persistence requirement. The architecture below describes the subsequent playable systems. For the implemented foundation, see [application flow](application-flow.md) and [project information](PROJECT_INFO.md).
 
 **Reading guide:** Section 1 gives the recommended architecture; sections 2–7 specify candidate code and execution contracts; sections 8–10 walk through concrete transactions; sections 11–12 preserve the earlier choices and verification scenarios; section 13 traces the evidence. The later decision record takes precedence wherever this research draft says an approved direction is proposed or open. Names, code shapes and paths remain illustrative; explicit qualifications and remaining design questions in the decision record still apply.
 
@@ -30,7 +32,7 @@ flowchart TB
       Domains[Calendar · weather · vineyards · work · wine · inventory · finance · trade · progression]
       Events[Ordered domain facts and reasons]
     end
-    Store[(Atomic, versioned company storage)]
+    Store[(Atomic company storage)]
     Shared[Optional shared-market operation]
 
     React -->|intent / command| Session
@@ -314,7 +316,7 @@ The sketch shows the orchestration, not required signatures. In production, doma
 
 ### Determinism and forecasts
 
-- Pass a company seed and stable context—such as game interval, subsystem, entity ID and purpose—to random rules, or persist a versioned PRNG state. If using a stateful PRNG, include its advanced state in the candidate and commit it with the game; the sketch above illustrates keyed context rather than a stateful stream. Define the selected algorithm and stable entity order in the implementation. IDs generated during a transition must also be reproducible or supplied as explicit command inputs.
+- Pass a company seed and stable context—such as game interval, subsystem, entity ID and purpose—to random rules, or persist the PRNG state. If using a stateful PRNG, include its advanced state in the candidate and commit it with the game; the sketch above illustrates keyed context rather than a stateful stream. Define the selected algorithm and stable entity order in the implementation. IDs generated during a transition must also be reproducible or supplied as explicit command inputs.
 - Given the same input state, command, rule/catalog version and random context, a transition should produce the same result. This is not a promise that old saves replay identically after rules change, or that different numerical step sizes produce exactly the same result.
 - A preview runs the same calculation against a copy and discards its result. A forecast may instead use a stated range or multiple scenario seeds; do not disclose hidden future random outcomes merely because the engine can reproduce them. Never consume the live random sequence or apply a reward during a preview.
 - Fixed canonical substeps or explicit next-boundary handling are candidates. Compare results under the **same** stepping policy, and test any acceptable numerical error when splitting intervals. Decide the actual step size and tolerance with the wine model.
@@ -406,7 +408,7 @@ This is an internal authority-to-storage interface. With a server authority, the
 type LoadCompanyResult =
   | { kind: 'loaded'; revision: number; data: SerializedCompany }
   | { kind: 'not-found' }
-  | { kind: 'invalid'; details: string }       // includes unsupported schema
+  | { kind: 'invalid'; details: string }
   | { kind: 'unavailable'; details: string };   // read failed; existence unknown
 
 interface CompanySavePort {
@@ -425,7 +427,7 @@ interface CompanySavePort {
 
 The adapter must implement these behaviors:
 
-1. **Load:** validate schema version, required fields, finite/range values, IDs and cross-references before constructing the runtime state. `not-found` alone permits an explicit new-company flow; creation must also atomically check that no company save appeared concurrently. Invalid, unsupported and unavailable saves are preserved and must not be auto-overwritten.
+1. **Load:** validate the current required fields, finite/range values, IDs and cross-references before constructing the runtime state. `not-found` alone permits an explicit new-company flow; creation must also atomically check that no company save appeared concurrently. Invalid and unavailable saves are preserved and must not be auto-overwritten during normal operation.
 2. **Commit:** atomically check revision, write all company facts and the new revision, and record the command ID, semantic payload fingerprint and result receipt. If a durable external effect is required, store its outbox record in that same transaction. A provider must actually support this atomic scope; an interface alone does not provide it.
 3. **Repeat:** look up the command ID before rejecting a stale revision or evaluating it as a new attempt. The same ID and semantic payload returns the original receipt without applying the transition or toast again. The same ID with a different semantic payload is an error. The expected revision is a concurrency precondition, not part of the semantic payload fingerprint. Retain receipts for the supported retry horizon; do not prune them while an old command can still be retried without another durable deduplication record.
 4. **Known failure:** if the authority confirms no commit occurred, retain the previous committed snapshot and expose a retryable failure. Do not report success or advance the displayed date.
@@ -436,7 +438,7 @@ For a local-only provider, the same atomic revision/receipt rule still matters a
 
 This commit-before-publish policy adds storage latency to each accepted command, particularly with a remote authority. Show a pending state and avoid blocking rendering while the command is in flight. If future automatic high-frequency simulation needs grouped commits or a bounded loss window, specify that as a different durability policy with its own recovery behavior; silently debouncing writes would weaken the contract. A long multi-interval request may instead commit explicitly reported intervals one by one, but then partial advancement is an intentional result rather than an all-or-nothing command.
 
-Persist **authoritative** calendar, vineyards, lots, holdings/allocations, equipment, activities, people, finance, contracts, research and any chosen durable history, plus the reproducibility metadata required by the selected rules. Rebuild current evaluation, summaries, view models and other caches on load. A version field enables validation and future 05-to-05 migration only when real 05 save formats exist; it does not imply importing 04 saves.
+Persist **authoritative** calendar, vineyards, lots, holdings/allocations, equipment, activities, people, finance, contracts, research and any chosen durable history, plus the reproducibility metadata required by the selected rules. Rebuild current evaluation, summaries, view models and other caches on load. Use the current schema directly without save-version checks or migrations for older development saves.
 
 ### Shared market: a separate authority decision
 
@@ -478,7 +480,7 @@ These are possible slices after the approved UI prototype, not an approved deliv
 1. **Core seam:** introduce company state, explicit command/result types, calendar and a synchronous no-IO transition; exercise a manual time advance without UI or storage dependencies.
 2. **First vertical transaction:** add a small vineyard, staff/work allocation, capacity and a partial harvest producing a lot. Run the same work calculation for preview and application.
 3. **Wine continuation:** add one physically meaningful process, actual vessel environment, derived sensory/evaluation and bottling with continued development. Keep exact variables and formulas subject to wine design.
-4. **Durable company session:** select a provider, validate a versioned 05 save, implement atomic revision/receipt commits and company activation; expose failures. This can be pulled earlier if the first playable slice needs persistence.
+4. **Durable company session:** select a provider, validate the current 05 save, implement atomic revision/receipt commits and company activation; expose failures. This can be pulled earlier if the first playable slice needs persistence.
 5. **Supporting systems:** connect finance, research, contracts, reputation and other adopted mechanics through explicit commands and tick phases. Introduce any shared authority only when its product and consistency model are decided.
 
 Useful acceptance scenarios for the eventual implementation:
@@ -489,7 +491,7 @@ Useful acceptance scenarios for the eventual implementation:
 - A bottled wine continues to develop; current evaluation changes with the wine while a recorded bottling assessment remains unchanged.
 - A failed stage or failed commit leaves the previous date, lot, activity, finance and reward state intact; a season/year boundary and achievement reward apply once.
 - A duplicate command or lost response resolves to one receipt and one mutation; a stale second tab/device receives a conflict rather than overwriting a later revision.
-- Loading an invalid, unsupported or unreadable company never creates a replacement save; switching companies never mixes their state or accepts a late old-company response.
+- Loading an invalid or unreadable company never creates a replacement save during normal operation; switching companies never mixes their state or accepts a late old-company response.
 - If shared trade is built: concurrent buyers cannot acquire the same goods, price and authorization are checked by the authority, a retry cannot charge twice, and an inactive seller's canonical revision is updated. Test transaction failure and any outbox delivery separately.
 
 These are proposed tests, not tests that have been run. Validate the chosen provider's actual transaction and concurrency semantics, not only a mocked port.

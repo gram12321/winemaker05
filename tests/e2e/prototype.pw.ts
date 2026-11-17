@@ -12,7 +12,7 @@ test('prototype supports scene selection, navigation and dialogs', async ({ page
     const url = new URL(route.request().url());
     if (url.pathname === '/api/companies') return route.fulfill({ json: { kind: 'listed', companyIds: ['test-company'] } });
     if (url.pathname.endsWith('/commands')) { week++; revision++; return route.fulfill({ json: { kind: 'committed', revision, events: [] } }); }
-    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: 'test-company', schemaVersion: 1, revision, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week } } } } } });
+    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: 'test-company', revision, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week } } } } } });
   });
   await page.goto('/');
   await page.getByLabel('Email').fill('test@example.com');

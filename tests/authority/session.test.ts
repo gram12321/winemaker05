@@ -181,7 +181,7 @@ describe('trusted company session', () => {
     expect(saves.writes).toBe(1);
   });
 
-  it('fences a late uncertain attempt before permitting the same command to retry', async () => {
+  it('fences an uncertain command and requires a new ID for a later decision', async () => {
     const { saves, session } = setup();
     await session.switchCompany('alpha');
     saves.nextCommit = 'late-unknown';
@@ -189,7 +189,8 @@ describe('trusted company session', () => {
     expect(await session.resolve()).toEqual({ kind: 'not-committed' });
     expect(saves.runLateAttempt().kind).toBe('failed');
     expect(saves.writes).toBe(0);
-    expect((await session.dispatch(envelope('retry'))).kind).toBe('committed');
+    expect((await session.dispatch(envelope('retry'))).kind).toBe('failed');
+    expect((await session.dispatch(envelope('new-decision'))).kind).toBe('committed');
     expect(saves.writes).toBe(1);
   });
 
@@ -381,7 +382,6 @@ describe('trusted company session', () => {
   it.each([
     { kind: 'missing' } as const,
     { kind: 'invalid', details: 'corrupt' } as const,
-    { kind: 'unsupported', version: 9 } as const,
     { kind: 'unavailable', details: 'offline' } as const,
   ])('preserves the active company on a $kind load', async (failure) => {
     const { saves, session } = setup();

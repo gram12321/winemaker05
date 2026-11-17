@@ -117,7 +117,6 @@ function publicLoad(result: LoadResult | SwitchResult): PublicResponse {
     };
     case 'missing': return { status: 404, body: { kind: 'missing' } };
     case 'invalid': return { status: 422, body: { kind: 'invalid', details: 'The company save is invalid.' } };
-    case 'unsupported': return { status: 422, body: { kind: 'unsupported', version: result.version } };
     case 'unavailable': return { status: 503, body: { kind: 'unavailable' } };
     case 'blocked': return { status: 409, body: result };
   }

@@ -61,7 +61,7 @@ describe('Pixi scene lifecycle', () => {
     view.unmount();
     await act(async () => { app.resolveInit(); });
     expect(app.destroy).toHaveBeenCalledOnce();
-    expect(app.destroy).toHaveBeenCalledWith(true, { children: true });
+    expect(app.destroy).toHaveBeenCalledWith({ removeView: true }, { children: true });
     expect(fakes.draw).not.toHaveBeenCalled();
     expect(fakes.observers).toHaveLength(0);
   });
@@ -80,6 +80,6 @@ describe('Pixi scene lifecycle', () => {
     expect(fakes.apps[2].render).toHaveBeenCalled();
     view.unmount();
     expect(fakes.apps[2].destroy).toHaveBeenCalledOnce();
-    expect(fakes.apps[2].destroy).toHaveBeenCalledWith(true, { children: true });
+    expect(fakes.apps[2].destroy).toHaveBeenCalledWith({ removeView: true }, { children: true });
   });
 });

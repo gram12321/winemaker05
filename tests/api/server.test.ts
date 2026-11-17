@@ -152,7 +152,7 @@ describe('company HTTP authority', () => {
     const base = await start(database);
     await create(base);
     database.saves.receipts.set(JSON.stringify(['vineyard', 'used']), {
-      companyId: 'vineyard', commandId: 'used', fingerprint: 'json-v1:{"type":"other"}', revision: 1,
+      companyId: 'vineyard', commandId: 'used', fingerprint: '{"type":"other"}', revision: 1,
     });
     expect(await call(base, '/companies/vineyard/commands', {
       token: 'alice', body: { commandId: 'used', expectedRevision: 0, command },
@@ -185,6 +185,31 @@ describe('company HTTP authority', () => {
     expect(database.saves.lateAttempt?.attemptId).not.toBe('late');
     expect(await call(base, '/companies/vineyard/resolve', { token: 'alice', body: { commandId: 'late' } })).toEqual({ status: 200, body: { kind: 'not-committed' } });
     expect(database.saves.runLateAttempt().kind).toBe('failed');
+  });
+
+  it('does not let another delayed delivery of a fenced command commit after resolution', async () => {
+    const database = new OwnerBoundMemory();
+    const first = await start(database);
+    const second = await start(database);
+    await create(first);
+    const intent = { commandId: 'same-intent', expectedRevision: 0, command };
+    let started!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { started = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    database.saves.beforeCommit = async () => { started(); await held; };
+    const delayed = call(first, '/companies/vineyard/commands', { token: 'alice', body: intent });
+    await waiting;
+    database.saves.beforeCommit = undefined;
+    try {
+      database.saves.nextCommit = 'reservation-then-unknown';
+      expect((await call(second, '/companies/vineyard/commands', { token: 'alice', body: intent })).body.kind).toBe('unknown');
+      expect((await call(second, '/companies/vineyard/resolve', { token: 'alice', body: { commandId: intent.commandId } })).body.kind).toBe('not-committed');
+    } finally {
+      release();
+    }
+    expect((await delayed).body.kind).toBe('failed');
+    expect(database.saves.writes).toBe(0);
   });
 
   it('settles an unknown committed attempt by retrying its exact command ID and payload', async () => {

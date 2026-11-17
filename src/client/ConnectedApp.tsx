@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import type { CompanySnapshot } from '../authority/contracts';
 import App from '../App';
@@ -55,19 +55,44 @@ function CompanyWorkspace({ session }: { session: Session }) {
   const [companies, setCompanies] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<CompanySnapshot | null>(null);
   const [pendingId, setPendingId] = useState<string | undefined>();
+  const [needsRefresh, setNeedsRefresh] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const creationKey = `winemaker05.creation.${session.user.id}`;
+  const companyId = snapshot?.companyId;
+  const subscribePending = useCallback((notify: () => void) => {
+    if (!companyId) return () => {};
+    return client.subscribePending(companyId, (cleared) => {
+      if (cleared) setNeedsRefresh(true);
+      notify();
+    });
+  }, [client, companyId]);
+  const getPending = useCallback(() => companyId ? client.hasPending(companyId) : false, [client, companyId]);
+  const localPending = useSyncExternalStore(subscribePending, getPending, () => false);
   async function list() { setCompanies(await client.list()); }
   useEffect(() => { let active = true; void client.list().then(ids => { if (active) setCompanies(ids); }).catch(() => { if (active) setMessage('Could not reach the company service. Check that the authority is running.'); }); return () => { active = false; }; }, [client]);
   async function run(action: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true); setMessage('');
     try { await action(); } catch (error) { setMessage(error instanceof Error ? error.message : 'The service is unavailable.'); }
-    finally { setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); }
   }
   async function open(id: string) {
     const loaded = await client.load(id);
-    setSnapshot(loaded.snapshot); setPendingId(loaded.pendingId);
+    setSnapshot(loaded.snapshot); setPendingId(loaded.pendingId); setNeedsRefresh(false);
+  }
+  async function actAndRefresh(id: string, action: () => Promise<void>) {
+    setNeedsRefresh(true);
+    let failed = false;
+    let failure: unknown;
+    try { await action(); } catch (error) { failed = true; failure = error; }
+    try { await open(id); } catch {
+      const prefix = failed && failure instanceof Error ? `${failure.message} ` : '';
+      throw new Error(`${prefix}The company could not be refreshed. Refresh it before advancing time.`);
+    }
+    if (failed) throw failure;
   }
   async function create() {
     const id = localStorage.getItem(creationKey) ?? crypto.randomUUID();
@@ -76,9 +101,9 @@ function CompanyWorkspace({ session }: { session: Session }) {
     localStorage.removeItem(creationKey);
     await list(); await open(id);
   }
-  const unresolved = snapshot ? Boolean(pendingId || client.hasPending(snapshot.companyId)) : false;
+  const unresolved = Boolean(pendingId || localPending);
   return <>
-    <div className="account-bar"><span>{session.user.email}</span><button type="button" onClick={() => { setSnapshot(null); void supabase!.auth.signOut(); }}>Sign out</button></div>
+    <div className="account-bar"><span>{session.user.email}</span><button type="button" disabled={busy} onClick={() => { setSnapshot(null); void supabase!.auth.signOut(); }}>Sign out</button></div>
     {!snapshot ? <main className="connection-screen"><div className="connection-card"><span className="eyebrow">YOUR WINERY</span><h1>Your companies</h1>
       {companies.length === 0 && <p>No companies found.</p>}
       {companies.map(id => <button className="company-choice" key={id} disabled={busy} onClick={() => void run(() => open(id))}>Open company {id.slice(0, 8)}</button>)}
@@ -86,9 +111,14 @@ function CompanyWorkspace({ session }: { session: Session }) {
       <button className="secondary-button" disabled={busy} onClick={() => void run(list)}>Refresh</button>
       {message && <p role="alert">{message}</p>}
     </div></main> : <>
-      <App calendar={snapshot.state.calendar} busy={busy} canAdvance={!unresolved} onAdvance={() => void run(async () => { await client.advance(snapshot); await open(snapshot.companyId); })} />
-      <div className="connection-status"><button type="button" disabled={busy} onClick={() => { setSnapshot(null); setPendingId(undefined); void run(list); }}>Companies</button>
-        {unresolved && <button type="button" disabled={busy} onClick={() => void run(async () => { await client.recover(snapshot.companyId, pendingId); await open(snapshot.companyId); })}>Resolve pending command</button>}
+      <App calendar={snapshot.state.calendar} busy={busy} canAdvance={!unresolved && !needsRefresh} onAdvance={() => void run(() => actAndRefresh(snapshot.companyId, () => client.advance(snapshot)))} />
+      <div className="connection-status"><button type="button" disabled={busy || unresolved} onClick={() => void run(async () => {
+        if (pendingId) throw new Error('Resolve the pending command first.');
+        await client.prepareToSwitch(snapshot.companyId);
+        setSnapshot(null); setPendingId(undefined); setNeedsRefresh(false); await list();
+      })}>Companies</button>
+        {unresolved && <button type="button" disabled={busy} onClick={() => void run(() => actAndRefresh(snapshot.companyId, () => client.recover(snapshot.companyId, pendingId)))}>Resolve pending command</button>}
+        {needsRefresh && <button type="button" disabled={busy} onClick={() => void run(() => open(snapshot.companyId))}>Refresh company</button>}
         {message && <span role="alert">{message}</span>}
       </div>
     </>}

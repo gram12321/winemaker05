@@ -31,7 +31,7 @@ export class CompanyClient {
   async load(companyId: string): Promise<{ snapshot: CompanySnapshot; pendingId?: string }> {
     const result = await this.request(`/companies/${encodeURIComponent(companyId)}`);
     const snapshot = result.snapshot as CompanySnapshot | undefined;
-    if (result.kind !== 'loaded' || !snapshot || snapshot.companyId !== companyId || snapshot.schemaVersion !== 1 || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 || readCompanyState(snapshot.state).kind !== 'valid') throw new Error(`Company could not be loaded (${result.kind}).`);
+    if (result.kind !== 'loaded' || !snapshot || snapshot.companyId !== companyId || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 || readCompanyState(snapshot.state).kind !== 'valid') throw new Error(`Company could not be loaded (${result.kind}).`);
     const pending = result.pending as { commandId?: unknown } | undefined;
     if (pending && typeof pending.commandId !== 'string') throw new Error('Invalid pending command.');
     return { snapshot, ...(pending ? { pendingId: pending.commandId as string } : {}) };
@@ -45,12 +45,29 @@ export class CompanyClient {
     } catch { /* Preserve malformed records for recovery rather than overwrite them. */ }
     throw new Error('A saved pending command is invalid. It has been preserved.');
   }
+  private async withCommandLock<T>(companyId: string, action: () => Promise<T>): Promise<T> {
+    // localStorage does not provide an atomic check-and-set across tabs. Hold
+    // the same origin-scoped lock until the command or recovery finishes.
+    if (!navigator.locks) throw new Error('This browser cannot safely coordinate cross-tab commands.');
+    const name = `winemaker05.command.${JSON.stringify([this.ownerId, companyId])}`;
+    return navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
+      if (!lock) throw new Error('Another tab is handling a command for this company.');
+      return action();
+    });
+  }
+  async prepareToSwitch(companyId: string): Promise<void> {
+    return this.withCommandLock(companyId, async () => {
+      if (this.hasPending(companyId)) throw new Error('Resolve the pending command first.');
+    });
+  }
   async advance(snapshot: CompanySnapshot): Promise<void> {
-    if (this.pending(snapshot.companyId)) throw new Error('Resolve the pending command first.');
-    const pending: PendingCommand = { commandId: crypto.randomUUID(), expectedRevision: snapshot.revision, command: { type: 'time.advance' } };
-    // Persist before sending; if storage fails, no command is sent.
-    this.storage.setItem(this.key(snapshot.companyId), JSON.stringify(pending));
-    await this.send(snapshot.companyId, pending);
+    return this.withCommandLock(snapshot.companyId, async () => {
+      if (this.pending(snapshot.companyId)) throw new Error('Resolve the pending command first.');
+      const pending: PendingCommand = { commandId: crypto.randomUUID(), expectedRevision: snapshot.revision, command: { type: 'time.advance' } };
+      // Persist before sending; if storage fails, no command is sent.
+      this.storage.setItem(this.key(snapshot.companyId), JSON.stringify(pending));
+      await this.send(snapshot.companyId, pending);
+    });
   }
   private async send(companyId: string, pending: PendingCommand): Promise<void> {
     const result = await this.request(`/companies/${encodeURIComponent(companyId)}/commands`, pending);
@@ -62,17 +79,31 @@ export class CompanyClient {
     throw new Error('The command outcome is not yet known. Resolve it before continuing.');
   }
   async recover(companyId: string, serverPendingId?: string): Promise<void> {
-    const local = this.pending(companyId);
-    const id = serverPendingId ?? local?.commandId;
-    if (!id) return;
-    const result = await this.request(`/companies/${encodeURIComponent(companyId)}/resolve`, { commandId: id });
-    if (result.kind === 'committed' || result.kind === 'not-committed') {
-      if (local?.commandId === id) this.storage.removeItem(this.key(companyId));
-      return;
-    }
-    if (result.kind === 'pending' && result.retry === 'original-command' && local?.commandId === id) return this.send(companyId, local);
-    throw new Error('A command is still unresolved. Retry recovery before advancing time.');
+    return this.withCommandLock(companyId, async () => {
+      const local = this.pending(companyId);
+      const id = serverPendingId ?? local?.commandId;
+      if (!id) return;
+      const result = await this.request(`/companies/${encodeURIComponent(companyId)}/resolve`, { commandId: id });
+      if (result.kind === 'committed' || result.kind === 'not-committed') {
+        if (local?.commandId === id) this.storage.removeItem(this.key(companyId));
+        return;
+      }
+      if (result.kind === 'pending' && result.retry === 'original-command' && local?.commandId === id) return this.send(companyId, local);
+      throw new Error('A command is still unresolved. Retry recovery before advancing time.');
+    });
   }
   // A malformed record still blocks writes and can be reported by recover().
   hasPending(companyId: string): boolean { return this.storage.getItem(this.key(companyId)) !== null; }
+
+  /** Other tabs sharing this storage may start or settle a command. */
+  subscribePending(companyId: string, onChange: (cleared: boolean) => void): () => void {
+    const key = this.key(companyId);
+    const changed = (event: StorageEvent) => {
+      if (event.storageArea === this.storage && (event.key === key || event.key === null)) {
+        onChange(event.key === null || event.newValue === null);
+      }
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }
 }

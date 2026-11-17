@@ -1,7 +1,7 @@
 /**
  * Snapshot and command values are plain JSON data. Reject lossy JSON encoding,
  * accessors, custom prototypes, sparse arrays, cycles and non-finite numbers.
- * The sorted representation is a collision-free, versioned fingerprint input.
+ * The sorted representation is a collision-free fingerprint input.
  */
 function canonicalJson(value: unknown, ancestors: Set<object>): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
@@ -64,5 +64,5 @@ export function immutableCopy<T>(value: T): T {
 }
 
 export function commandFingerprint(command: unknown): string {
-  return `json-v1:${canonicalize(command)}`;
+  return canonicalize(command);
 }

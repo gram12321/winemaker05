@@ -44,7 +44,7 @@ export default function App({ calendar, busy = false, canAdvance = false, onAdva
           <div className="calendar-placeholder" aria-label="Calendar">
             <Icon name="calendar" /><span><small>CALENDAR</small><strong>{calendar ? `Year ${calendar.date.year} / Season ${calendar.date.season} / Week ${calendar.date.week}` : "--"}</strong></span>
           </div>
-          <button className="advance-button" type="button" disabled={!calendar || busy || !canAdvance} onClick={onAdvance} title={canAdvance ? "Advance one week" : "Resolve any pending command first"}>Advance time <Icon name="arrow" /></button>
+          <button className="advance-button" type="button" disabled={!calendar || busy || !canAdvance} onClick={onAdvance} title={canAdvance ? "Advance one week" : "Resolve any pending command or refresh the company first"}>Advance time <Icon name="arrow" /></button>
           <button
             ref={activityToggleRef}
             className={"activity-toggle" + (activityOpen ? " is-active" : "")}

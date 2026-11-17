@@ -44,7 +44,7 @@ export function SceneCanvas({ scene, selected, onSelect }: SceneCanvasProps) {
         });
         initialized = true;
         if (cancelled) {
-          app.destroy(true, { children: true });
+          app.destroy({ removeView: true }, { children: true });
           return;
         }
 
@@ -70,7 +70,7 @@ export function SceneCanvas({ scene, selected, onSelect }: SceneCanvasProps) {
         appRef.current = null;
         drawingRef.current = null;
       }
-      if (initialized) app.destroy(true, { children: true });
+      if (initialized) app.destroy({ removeView: true }, { children: true });
     };
   }, [scene]);
 

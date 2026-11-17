@@ -61,12 +61,14 @@ The user accepted all 43 numbered recommendations from the architecture discussi
 6. Use Supabase/Postgres as the starting **candidate**, with TypeScript game rules in a trusted command service and database transactions for commits. This does not select an installed provider or import 04's schema.
 7. Use authenticated accounts owning companies; keep account identity separate from company state and allow multiple companies per player.
 8. Start online; defer offline gameplay and synchronization. The UI-only prototype is unaffected.
-9. Start with a versioned company snapshot stored atomically and keyed by company. Add separate tables when shared trading, queries or performance require them, while retaining coherent company commits.
+9. Store a current company snapshot atomically and keyed by company. Add separate tables when shared trading, queries or performance require them, while retaining coherent company commits. The 17 November decision below removes save-version handling.
 10. Commit each accepted gameplay command before showing success; keep rendering responsive and show pending state. Any later less-frequent-save policy must explicitly define its loss window.
 11. Use company revisions to reject stale writes and reload rather than overwrite a newer session.
 12. Give commands stable IDs and retain receipts for the supported retry period so lost responses and repeated commands do not apply an action twice.
-13. Distinguish missing, invalid, unsupported and unavailable saves; preserve invalid data. Resolve in-flight commands before switching companies and ignore late old-company responses.
-14. Start a new 05 save schema; do not import 04 saves without a later requirement. Add migrations only for actual 05 save versions when needed.
+13. Distinguish missing, invalid and unavailable saves; preserve invalid data during normal operation. Resolve in-flight commands before switching companies and ignore late old-company responses.
+14. Use the current 05 save schema. The 17 November decision below replaces the earlier direction to add save migrations when needed.
+
+**17 November 2026 — pre-release compatibility decision:** Winemaker05 is not live. Do not add application or save-version checks, backward-compatibility paths, legacy-data support or migrations to preserve older versions or saves. Change the current schema and its callers directly; obsolete development saves can be discarded and the current schema recreated. Continue to validate current data and use company revisions for concurrency: those are correctness safeguards, not save-version compatibility.
 
 ### Time and the tick
 

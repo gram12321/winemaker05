@@ -130,6 +130,7 @@ suite('HTTP authority and real PostgreSQL', () => {
     expect(blocked).toMatchObject({ status: 409, body: { kind: 'blocked', reason: 'unresolved' } });
     const resolved = await call(secondBase, `/companies/${company}/resolve`, 'owner', { commandId: 'uncertain' });
     expect(resolved).toEqual({ status: 200, body: { kind: 'not-committed' } });
-    expect((await call(secondBase, `/companies/${company}/commands`, 'owner', pending)).body).toMatchObject({ kind: 'committed', revision: 1 });
+    expect((await call(secondBase, `/companies/${company}/commands`, 'owner', pending)).body).toMatchObject({ kind: 'failed' });
+    expect((await call(secondBase, `/companies/${company}/commands`, 'owner', { ...pending, commandId: 'new-decision' })).body).toMatchObject({ kind: 'committed', revision: 1 });
   });
 });

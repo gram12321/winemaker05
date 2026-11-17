@@ -43,7 +43,7 @@ function candidate(companyId: string, commandId: string, attemptId: string, opti
     receipt: {
       companyId,
       commandId,
-      fingerprint: options?.fingerprint ?? 'json-v1:{"type":"time.advance"}',
+      fingerprint: options?.fingerprint ?? '{"type":"time.advance"}',
       revision: expectedRevision + 1,
     },
   };
@@ -357,7 +357,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
       expect(await owner.resolveAttempt(resolution(candidate(companyId, 'late', 'late-attempt')))).toEqual({ kind: 'not-committed' });
       const loaded = await owner.load(companyId);
       expect(loaded).toMatchObject({ kind: 'loaded', snapshot: { revision: 1 }, pending: resolution(input) });
-      const fences = await pool.query(`SELECT attempt_id FROM winemaker05_private.attempt_fences WHERE company_id = $1 AND owner_id = $2`, [companyId, ownerId]);
+      const fences = await pool.query(`SELECT attempt_id FROM winemaker05_private.attempt_fences WHERE company_id = $1 AND owner_id = $2 AND attempt_id = $3`, [companyId, ownerId, 'late-attempt']);
       expect(fences.rows).toEqual([{ attempt_id: 'late-attempt' }]);
     } finally {
       pause.release();
@@ -382,15 +382,54 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
     expect(await owner.getReceipt(companyId, 'late')).toEqual({ kind: 'absent' });
   });
 
-  it('fences a late original attempt and allows a fresh attempt for the same command', async () => {
+  it('fences all deliveries of a canceled command and allows a new decision', async () => {
     const companyId = randomUUID();
     await owner.createCompany({ companyId, state: state() });
     const late = candidate(companyId, 'command', 'late-attempt');
     expect(await owner.resolveAttempt(resolution(late))).toEqual({ kind: 'not-committed' });
     expect((await owner.commit(late)).kind).toBe('failed');
     expect(await owner.getReceipt(companyId, 'command')).toEqual({ kind: 'absent' });
-    expect(await owner.commit(candidate(companyId, 'command', 'fresh-attempt'))).toEqual({ kind: 'committed' });
-    expect(await owner.commit(late)).toEqual({ kind: 'already-committed', receipt: late.receipt });
+    expect((await owner.commit(candidate(companyId, 'command', 'fresh-attempt'))).kind).toBe('failed');
+    expect(await owner.commit(candidate(companyId, 'new-command', 'new-attempt'))).toEqual({ kind: 'committed' });
+    expect((await owner.commit(late)).kind).toBe('failed');
+  });
+
+  it('cancels another reservation for the same intent when fencing a delayed delivery', async () => {
+    const companyId = randomUUID();
+    await owner.createCompany({ companyId, state: state() });
+    const active = candidate(companyId, 'shared-command', 'active-attempt');
+    const late = candidate(companyId, 'shared-command', 'late-attempt');
+    const pause = pauseFirstTransaction(pool, 'reservation-commit');
+    const running = new PostgresCompanySavePort(pause.pool, ownerId).commit(active);
+    await pause.started;
+    try {
+      expect(await owner.resolveAttempt(resolution(late))).toEqual({ kind: 'not-committed' });
+      const loaded = await owner.load(companyId);
+      expect(loaded.kind === 'loaded' && loaded.pending).toBeUndefined();
+    } finally {
+      pause.release();
+    }
+    expect((await running).kind).toBe('failed');
+    expect((await owner.commit(late)).kind).toBe('failed');
+    expect(await owner.getReceipt(companyId, 'shared-command')).toEqual({ kind: 'absent' });
+  });
+
+  it('does not cancel a competing payload that reused the command ID', async () => {
+    const companyId = randomUUID();
+    await owner.createCompany({ companyId, state: state() });
+    const active = candidate(companyId, 'shared-command', 'active-attempt', { fingerprint: 'first-payload' });
+    const other = candidate(companyId, 'shared-command', 'other-attempt', { fingerprint: 'different-payload' });
+    const pause = pauseFirstTransaction(pool, 'reservation-commit');
+    const running = new PostgresCompanySavePort(pause.pool, ownerId).commit(active);
+    await pause.started;
+    try {
+      expect(await owner.resolveAttempt(resolution(other))).toEqual({ kind: 'pending' });
+      expect(await owner.load(companyId)).toMatchObject({ kind: 'loaded', pending: resolution(active) });
+    } finally {
+      pause.release();
+    }
+    expect(await running).toEqual({ kind: 'committed' });
+    expect(await owner.resolveAttempt(resolution(other))).toEqual({ kind: 'command-id-mismatch', receipt: active.receipt });
   });
 
   it('returns unavailable if a fence commit response is lost even when the fence was saved', async () => {
@@ -419,28 +458,20 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
     expect(await owner.commit(loser)).toEqual({ kind: 'command-id-mismatch' });
   });
 
-  it('preserves invalid and unsupported records and refuses direct commits over them', async () => {
+  it('preserves invalid records and refuses direct commits over them', async () => {
     const invalidId = randomUUID();
-    const unsupportedId = randomUUID();
     await owner.createCompany({ companyId: invalidId, state: state() });
-    await owner.createCompany({ companyId: unsupportedId, state: state() });
     const invalidState = { calendar: { rules: 'invalid' }, evidence: 'keep' };
     await pool.query(`UPDATE winemaker05_private.company_saves SET state = $2::jsonb WHERE company_id = $1`,
       [invalidId, JSON.stringify(invalidState)]);
-    await pool.query(`UPDATE winemaker05_private.company_saves SET schema_version = 999 WHERE company_id = $1`, [unsupportedId]);
     expect((await owner.load(invalidId)).kind).toBe('invalid');
-    expect(await owner.load(unsupportedId)).toEqual({ kind: 'unsupported', version: 999 });
     expect((await owner.commit(candidate(invalidId, 'command', 'attempt'))).kind).toBe('failed');
-    expect((await owner.commit(candidate(unsupportedId, 'command', 'attempt'))).kind).toBe('failed');
     expect(await owner.createCompany({ companyId: invalidId, state: state() })).toEqual({ kind: 'not-created' });
-    expect(await owner.createCompany({ companyId: unsupportedId, state: state() })).toEqual({ kind: 'not-created' });
-    const saved = await pool.query<{ company_id: string; state: unknown; schema_version: number; revision: string }>(
-      `SELECT company_id, state, schema_version, revision FROM winemaker05_private.company_saves WHERE company_id = ANY($1::text[])`,
-      [[invalidId, unsupportedId]],
+    const saved = await pool.query<{ state: unknown; revision: string }>(
+      `SELECT state, revision FROM winemaker05_private.company_saves WHERE company_id = $1`,
+      [invalidId],
     );
-    const byId = new Map(saved.rows.map((row) => [row.company_id, row]));
-    expect(byId.get(invalidId)).toMatchObject({ state: invalidState, revision: '0' });
-    expect(byId.get(unsupportedId)).toMatchObject({ schema_version: 999, revision: '0', state: state() });
+    expect(saved.rows[0]).toMatchObject({ state: invalidState, revision: '0' });
   });
 
   it('requires valid initial state and cannot overflow JavaScript-safe revisions', async () => {

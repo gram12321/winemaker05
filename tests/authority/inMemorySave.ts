@@ -1,5 +1,4 @@
 ﻿import {
-  COMPANY_SAVE_VERSION,
   type AttemptResolution,
   type CommandReceipt,
   type CommitResult,
@@ -20,6 +19,7 @@ export class InMemorySave implements CompanySavePort {
   readonly receiptAttempts = new Map<string, string>();
   readonly pending = new Map<string, PendingAttempt>();
   readonly fences = new Map<string, PendingAttempt>();
+  readonly commandFences = new Set<string>();
   readonly loadOverrides = new Map<string, LoadResult>();
   beforeCommit?: () => Promise<void>;
   beforeApply?: () => Promise<void>;
@@ -29,7 +29,7 @@ export class InMemorySave implements CompanySavePort {
   writes = 0;
 
   seed(companyId: string, state: CompanyState): void {
-    this.companies.set(companyId, { schemaVersion: COMPANY_SAVE_VERSION, companyId, revision: 0, state: structuredClone(state) });
+    this.companies.set(companyId, { companyId, revision: 0, state: structuredClone(state) });
   }
 
   async load(companyId: string): Promise<LoadResult> {
@@ -81,8 +81,13 @@ export class InMemorySave implements CompanySavePort {
         (pending?.attemptId === input.attemptId && (pending.commandId !== input.commandId || pending.fingerprint !== input.fingerprint))) {
       return { kind: 'unavailable', details: 'The attempt ID belongs to another command.' };
     }
+    if (!receipt && pending?.commandId === input.commandId && pending.fingerprint !== input.fingerprint) return { kind: 'pending' };
     this.fences.set(key, structuredClone(input));
-    if (pending?.attemptId === input.attemptId) this.pending.delete(input.companyId);
+    if (!receipt) this.commandFences.add(this.receiptKey(input.companyId, input.commandId));
+    if (pending?.commandId === input.commandId && pending.fingerprint === input.fingerprint) {
+      this.fences.set(this.fenceKey(input.companyId, pending.attemptId), structuredClone(pending));
+      this.pending.delete(input.companyId);
+    }
     if (receipt) return { kind: 'command-id-mismatch', receipt: structuredClone(receipt) };
     return { kind: 'not-committed' };
   }
@@ -97,6 +102,7 @@ export class InMemorySave implements CompanySavePort {
     const existing = this.receipts.get(this.receiptKey(input.companyId, input.receipt.commandId));
     if (existing) return existing.fingerprint === input.receipt.fingerprint
       ? { kind: 'already-committed', receipt: structuredClone(existing) } : { kind: 'command-id-mismatch' };
+    if (this.commandFences.has(this.receiptKey(input.companyId, input.receipt.commandId))) return { kind: 'failed', details: 'Command was fenced.' };
     if (this.receiptAttempts.has(this.fenceKey(input.companyId, input.attemptId))) {
       return { kind: 'failed', details: 'The attempt ID was already used.' };
     }
@@ -127,6 +133,7 @@ export class InMemorySave implements CompanySavePort {
     const existing = this.receipts.get(this.receiptKey(input.companyId, input.receipt.commandId));
     if (existing) return existing.fingerprint === input.receipt.fingerprint
       ? { kind: 'already-committed', receipt: structuredClone(existing) } : { kind: 'command-id-mismatch' };
+    if (this.commandFences.has(this.receiptKey(input.companyId, input.receipt.commandId))) return { kind: 'failed', details: 'Command was fenced.' };
     if (this.fences.has(this.fenceKey(input.companyId, input.attemptId))) return { kind: 'failed', details: 'Attempt was fenced.' };
     const pending = this.pending.get(input.companyId);
     if (!pending || pending.attemptId !== input.attemptId || pending.commandId !== input.receipt.commandId || pending.fingerprint !== input.receipt.fingerprint) {
