@@ -2,7 +2,7 @@
 
 Winemaker05 is the next iteration of the Winemaker wine-production and business simulation. Its simulation and player experience are being redesigned from the [Winemaker04 reference](https://github.com/gram12321/winemaker04).
 
-The repository now contains a React/PixiJS navigation prototype, a deterministic calendar and command foundation, and a candidate authenticated server and PostgreSQL save adapter. The prototype is not yet connected to a playable company: wine production, the other game systems, account provisioning, and deployment remain to be implemented. See [application flow](docs/WorkingDocs/application-flow.md) for implemented behavior and its limits.
+The repository contains a React/PixiJS prototype connected to an authenticated company authority and PostgreSQL save adapter. Accounts can create or load a company and advance its calendar. Wine production and other gameplay systems are not implemented yet. See [application flow](docs/WorkingDocs/application-flow.md) for implemented behavior and its limits.
 
 ## Development
 
@@ -14,6 +14,8 @@ npm run dev
 npm test
 npm run build
 ```
+
+Configure the client and authority as described in [project information](docs/WorkingDocs/PROJECT_INFO.md), then run `npm run authority` in a second terminal alongside `npm run dev`. The browser uses Supabase Auth and the local Vite proxy.
 
 The database integration tests are opt-in and require an isolated local PostgreSQL test database. The candidate authority requires a configured PostgreSQL connection and Supabase Auth project; see [project information](docs/WorkingDocs/PROJECT_INFO.md) before running it. Neither the schema nor any remote service is configured automatically.
 

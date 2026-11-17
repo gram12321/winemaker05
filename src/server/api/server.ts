@@ -9,6 +9,7 @@ const MAX_BODY_BYTES = 16 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 export interface CompanyStore extends CompanySavePort {
+  listCompanies(): Promise<{ readonly kind: 'listed'; readonly companyIds: readonly string[] } | { readonly kind: 'unavailable' }>;
   createCompany(input: { readonly companyId: string; readonly state: CompanyState }): Promise<
     | { readonly kind: 'created' }
     | { readonly kind: 'not-created' }
@@ -202,6 +203,10 @@ export function createApiServer(options: ApiOptions): Server {
 
     const url = new URL(request.url ?? '/', 'http://authority.invalid');
     const store = options.storeForOwner(ownerId);
+    if (request.method === 'GET' && url.pathname === '/companies') {
+      const result = await store.listCompanies();
+      return result.kind === 'listed' ? { status: 200, body: result } : { status: 503, body: result };
+    }
     if (request.method === 'POST' && url.pathname === '/companies') {
       const body = await readBody(request);
       if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };

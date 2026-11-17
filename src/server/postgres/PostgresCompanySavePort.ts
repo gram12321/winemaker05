@@ -109,6 +109,17 @@ export class PostgresCompanySavePort implements CompanySavePort {
     if (!present(ownerId)) throw new Error('An authenticated owner ID is required.');
   }
 
+  async listCompanies(): Promise<{ kind: 'listed'; companyIds: string[] } | { kind: 'unavailable' }> {
+    try {
+      const result = await this.pool.query<{ company_id: string }>(
+        'SELECT company_id FROM winemaker05_private.company_saves WHERE owner_id = $1 ORDER BY company_id', [this.ownerId],
+      );
+      return { kind: 'listed', companyIds: result.rows.map((row) => row.company_id) };
+    } catch {
+      return { kind: 'unavailable' };
+    }
+  }
+
   /** Explicit insert only; collisions never replace even invalid saved data. */
   async createCompany(input: CreateCompanyInput): Promise<CreateCompanyResult> {
     if (!input || !present(input.companyId)) return { kind: 'invalid', details: 'A company ID is required.' };

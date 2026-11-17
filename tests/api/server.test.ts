@@ -22,6 +22,7 @@ class OwnerBoundMemory {
   store(owner: string): CompanyStore {
     const owns = (companyId: string) => this.owners.get(companyId) === owner;
     return {
+      listCompanies: async () => ({ kind: 'listed', companyIds: [...this.owners].filter(([, id]) => id === owner).map(([id]) => id).sort() }),
       createCompany: async ({ companyId, state }) => {
         if (this.owners.has(companyId)) return { kind: 'not-created' };
         this.owners.set(companyId, owner);
@@ -92,6 +93,8 @@ describe('company HTTP authority', () => {
     expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'bob-company' } })).toEqual({ status: 201, body: { kind: 'created' } });
     expect(await call(base, '/companies/bob-company', { token: 'alice' })).toEqual({ status: 404, body: { kind: 'missing' } });
     expect((await call(base, '/companies/bob-company', { token: 'bob' })).body.kind).toBe('loaded');
+    expect((await call(base, '/companies', { token: 'alice' })).body).toEqual({ kind: 'listed', companyIds: ['vineyard'] });
+    expect((await call(base, '/companies', { token: 'bob' })).body).toEqual({ kind: 'listed', companyIds: ['bob-company'] });
   });
 
   it('uses trusted creation configuration and rejects client overrides or candidate state', async () => {
@@ -347,15 +350,14 @@ describe('server-owned company configuration', () => {
     WINEMAKER_START_WEEK: '1',
   };
 
-  it('requires every explicit setting and validates the complete calendar', () => {
+  it('uses the selected calendar defaults and validates explicit overrides', () => {
     expect(readCompanyConfigFromEnvironment(environment)).toEqual({ rules, initialDate });
-    for (const name of Object.keys(environment)) {
-      const missing: Record<string, string | undefined> = { ...environment };
-      delete missing[name];
-      expect(() => readCompanyConfigFromEnvironment(missing)).toThrow();
-    }
+    expect(readCompanyConfigFromEnvironment({})).toEqual({
+      rules: { weeksPerSeason: 12, seasonsPerYear: 4 },
+      initialDate: { year: 1, season: 1, week: 1 },
+    });
+    expect(readCompanyConfigFromEnvironment({ ...environment, WINEMAKER_START_YEAR: '' }).initialDate.year).toBe(1);
     for (const change of [
-      { WINEMAKER_START_YEAR: '' },
       { WINEMAKER_START_YEAR: '1e3' },
       { WINEMAKER_WEEKS_PER_SEASON: '0' },
       { WINEMAKER_SEASONS_PER_YEAR: '9007199254740992' },

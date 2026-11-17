@@ -1,9 +1,16 @@
 import { createCompanyState, type NewCompanyInput } from '../../game/core';
 
-/** Read all calendar settings from the trusted server environment; there are no gameplay defaults. */
+/** Read trusted calendar settings, using the selected defaults for new companies. */
 export function readCompanyConfigFromEnvironment(environment: Readonly<Record<string, string | undefined>>): NewCompanyInput {
-  function readInteger(name: string): number {
-    const value = environment[name];
+  const defaults: Readonly<Record<string, string>> = {
+    WINEMAKER_WEEKS_PER_SEASON: '12',
+    WINEMAKER_SEASONS_PER_YEAR: '4',
+    WINEMAKER_START_YEAR: '1',
+    WINEMAKER_START_SEASON: '1',
+    WINEMAKER_START_WEEK: '1',
+  };
+  function readInteger(name: keyof typeof defaults): number {
+    const value = environment[name]?.trim() || defaults[name];
     if (value === undefined || !/^-?\d+$/.test(value)) throw new Error('Invalid company startup configuration.');
     const parsed = Number(value);
     if (!Number.isSafeInteger(parsed)) throw new Error('Invalid company startup configuration.');

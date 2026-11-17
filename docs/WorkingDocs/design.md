@@ -128,4 +128,4 @@ The user accepted all 43 numbered recommendations from the architecture discussi
 
 Keep these open items distinct from the agreed direction above. The transition overview records the detailed rationale and remaining design questions; update this document when the user confirms further decisions.
 
-The detailed scene and panel layouts, specific art direction, and PixiJS version remain open in [Winemaker05 UI and Visual Concepts](Winemaker05_UI_Visual_Concepts.md) and the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md); their images do not define implementation details.
+Further detailed scene and panel layouts and art direction remain open in [Winemaker05 UI and Visual Concepts](Winemaker05_UI_Visual_Concepts.md) and the [Alpha UI Design Plan](plans/2026-11-13-alpha-ui-design-plan.md); their images do not define implementation details. The selected PixiJS version is recorded in [project information](PROJECT_INFO.md).

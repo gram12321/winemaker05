@@ -1,0 +1,10 @@
+﻿.connection-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f5f0e5; color: #493d30; }
+.connection-card { width: min(100%, 440px); padding: 32px; background: #fffdf8; border: 1px solid #dfd3bd; box-shadow: 0 8px 30px #46372518; }
+.connection-card h1 { font: 32px Georgia, serif; margin: 10px 0; }
+.connection-card label { display: block; margin: 16px 0; }
+.connection-card input { display: block; width: 100%; padding: 10px; margin-top: 6px; border: 1px solid #cabca7; }
+.company-choice { display: block; width: 100%; text-align: left; padding: 12px; margin-bottom: 8px; background: #f8f4eb; border: 1px solid #dfd3bd; cursor: pointer; }
+.account-bar, .connection-status { display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: #493d30; color: white; font-size: 13px; }
+.account-bar { justify-content: flex-end; }
+.account-bar button, .connection-status button { color: inherit; background: transparent; border: 1px solid #d3c5ad; padding: 5px 10px; cursor: pointer; }
+.connection-status { flex-wrap: wrap; }

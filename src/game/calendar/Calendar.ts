@@ -1,4 +1,4 @@
-/** Calendar sizes are supplied by the caller; 05 has no selected defaults yet. */
+/** Newly created companies start with an explicit, validated 05 calendar. */
 export interface CalendarRules {
   readonly weeksPerSeason: number;
   readonly seasonsPerYear: number;
