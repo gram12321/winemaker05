@@ -18,14 +18,16 @@ const command = { type: 'time.advance' };
 class OwnerBoundMemory {
   readonly saves = new InMemorySave();
   readonly owners = new Map<string, string>();
+  readonly names = new Map<string, string>();
 
   store(owner: string): CompanyStore {
     const owns = (companyId: string) => this.owners.get(companyId) === owner;
     return {
-      listCompanies: async () => ({ kind: 'listed', companyIds: [...this.owners].filter(([, id]) => id === owner).map(([id]) => id).sort() }),
-      createCompany: async ({ companyId, state }) => {
+      listCompanies: async () => ({ kind: 'listed', companies: [...this.owners].filter(([, id]) => id === owner).map(([id]) => ({ id, name: this.names.get(id)!, date: this.saves.companies.get(id)!.state.calendar.date })) }),
+      createCompany: async ({ companyId, name, state }) => {
         if (this.owners.has(companyId)) return { kind: 'not-created' };
         this.owners.set(companyId, owner);
+        this.names.set(companyId, name);
         this.saves.seed(companyId, state);
         return { kind: 'created' };
       },
@@ -74,7 +76,7 @@ async function call(base: string, path: string, options: { token?: string; body?
 }
 
 async function create(base: string, companyId = 'vineyard') {
-  return call(base, '/companies', { token: 'alice', body: { companyId } });
+  return call(base, '/companies', { token: 'alice', body: { companyId, name: companyId } });
 }
 
 describe('company HTTP authority', () => {
@@ -87,23 +89,26 @@ describe('company HTTP authority', () => {
     const missing = await call(base, '/companies/nonexistent', { token: 'bob' });
     expect(hidden).toEqual(missing);
     expect(hidden).toEqual({ status: 404, body: { kind: 'missing' } });
-    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'spoof', ownerId: 'alice' } })).toEqual({ status: 400, body: { kind: 'invalid-input' } });
+    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'spoof', name: 'Spoof', ownerId: 'alice' } })).toEqual({ status: 400, body: { kind: 'invalid-input' } });
     expect(database.owners.has('spoof')).toBe(false);
-    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'vineyard' } })).toEqual({ status: 409, body: { kind: 'not-created' } });
-    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'bob-company' } })).toEqual({ status: 201, body: { kind: 'created' } });
+    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'vineyard', name: 'Vineyard' } })).toEqual({ status: 409, body: { kind: 'not-created' } });
+    expect(await call(base, '/companies', { token: 'bob', body: { companyId: 'bob-company', name: 'Bob Winery' } })).toEqual({ status: 201, body: { kind: 'created' } });
     expect(await call(base, '/companies/bob-company', { token: 'alice' })).toEqual({ status: 404, body: { kind: 'missing' } });
     expect((await call(base, '/companies/bob-company', { token: 'bob' })).body.kind).toBe('loaded');
-    expect((await call(base, '/companies', { token: 'alice' })).body).toEqual({ kind: 'listed', companyIds: ['vineyard'] });
-    expect((await call(base, '/companies', { token: 'bob' })).body).toEqual({ kind: 'listed', companyIds: ['bob-company'] });
+    expect((await call(base, '/companies', { token: 'alice' })).body).toEqual({ kind: 'listed', companies: [{ id: 'vineyard', name: 'vineyard', date: initialDate }] });
+    expect((await call(base, '/companies', { token: 'bob' })).body).toEqual({ kind: 'listed', companies: [{ id: 'bob-company', name: 'Bob Winery', date: initialDate }] });
   });
 
   it('uses trusted creation configuration and rejects client overrides or candidate state', async () => {
     const database = new OwnerBoundMemory();
     const base = await start(database);
     for (const override of [{ rules }, { initialDate }, { rules, initialDate }, { state: {} }]) {
-      expect((await call(base, '/companies', { token: 'alice', body: { companyId: 'a', ...override } })).status).toBe(400);
+      expect((await call(base, '/companies', { token: 'alice', body: { companyId: 'a', name: 'Winery', ...override } })).status).toBe(400);
     }
     expect((await call(base, '/companies', { token: 'alice', body: {} })).status).toBe(400);
+    for (const name of ['', '  ', ' trailing ', 'x'.repeat(81)]) {
+      expect((await call(base, '/companies', { token: 'alice', body: { companyId: 'a', name } })).status).toBe(400);
+    }
     expect(database.owners.size).toBe(0);
     await create(base);
     expect((await call(base, '/companies/vineyard', { token: 'alice' })).body).toMatchObject({

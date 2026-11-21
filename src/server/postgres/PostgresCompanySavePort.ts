@@ -16,6 +16,7 @@ type ResolveInput = Parameters<CompanySavePort['resolveAttempt']>[0];
 
 export interface CreateCompanyInput {
   readonly companyId: string;
+  readonly name: string;
   readonly state: CompanyState;
 }
 
@@ -114,29 +115,33 @@ export class PostgresCompanySavePort implements CompanySavePort {
     if (!present(ownerId)) throw new Error('An authenticated owner ID is required.');
   }
 
-  async listCompanies(): Promise<{ kind: 'listed'; companyIds: string[] } | { kind: 'unavailable' }> {
+  async listCompanies() {
     try {
-      const result = await this.pool.query<{ company_id: string }>(
-        'SELECT company_id FROM winemaker05_private.company_saves WHERE owner_id = $1 ORDER BY company_id', [this.ownerId],
+      const result = await this.pool.query<{ company_id: string; company_name: string; state: unknown }>(
+        'SELECT company_id, company_name, state FROM winemaker05_private.company_saves WHERE owner_id = $1 ORDER BY company_name, company_id', [this.ownerId],
       );
-      return { kind: 'listed', companyIds: result.rows.map((row) => row.company_id) };
+      const companies = result.rows.map((row) => {
+        const state = readCompanyState(row.state);
+        return { id: row.company_id, name: row.company_name, date: state.kind === 'valid' ? state.state.calendar.date : null };
+      });
+      return { kind: 'listed' as const, companies };
     } catch {
-      return { kind: 'unavailable' };
+      return { kind: 'unavailable' as const };
     }
   }
 
   /** Explicit insert only; collisions never replace even invalid saved data. */
   async createCompany(input: CreateCompanyInput): Promise<CreateCompanyResult> {
-    if (!input || !present(input.companyId)) return { kind: 'invalid', details: 'A company ID is required.' };
+    if (!input || !present(input.companyId) || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 80 || input.name !== input.name.trim()) return { kind: 'invalid', details: 'A company ID and name are required.' };
     const validated = validateState(input.state);
     if ('details' in validated) return { kind: 'invalid', details: validated.details };
     try {
       const inserted = await this.pool.query(
         `INSERT INTO winemaker05_private.company_saves
-           (company_id, owner_id, revision, state)
-         VALUES ($1, $2, 0, $3::jsonb)
+           (company_id, owner_id, company_name, revision, state)
+         VALUES ($1, $2, $3, 0, $4::jsonb)
          ON CONFLICT (company_id) DO NOTHING RETURNING company_id`,
-        [input.companyId, this.ownerId, validated.json],
+        [input.companyId, this.ownerId, input.name, validated.json],
       );
       return inserted.rowCount === 1 ? { kind: 'created' } : { kind: 'not-created' };
     } catch {

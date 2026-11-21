@@ -19,10 +19,12 @@ REVOKE ALL ON SCHEMA winemaker05_private FROM PUBLIC;
 CREATE TABLE winemaker05_private.company_saves (
   company_id text PRIMARY KEY CHECK (length(company_id) > 0),
   owner_id text NOT NULL CHECK (length(owner_id) > 0),
+  company_name text NOT NULL CHECK (length(btrim(company_name)) BETWEEN 1 AND 80),
   revision bigint NOT NULL CHECK (revision BETWEEN 0 AND 9007199254740991),
   state jsonb NOT NULL,
   UNIQUE (company_id, owner_id)
 );
+CREATE INDEX company_saves_owner_name_idx ON winemaker05_private.company_saves (owner_id, company_name, company_id);
 
 CREATE TABLE winemaker05_private.command_receipts (
   company_id text NOT NULL,

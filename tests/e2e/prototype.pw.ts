@@ -5,20 +5,19 @@ test('prototype supports scene selection, navigation and dialogs', async ({ page
   page.on('pageerror', error => errors.push(error.message));
   const token = ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'test'].join('.');
   const user = { id: 'test-user', aud: 'authenticated', role: 'authenticated', email: 'test@example.com', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
-  await page.route('**/auth/v1/token?*', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
+  await page.route('**/auth/v1/signup', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
   await page.route('**/auth/v1/user', route => route.fulfill({ json: user }));
   let week = 1; let revision = 0;
   await page.route('**/api/companies**', route => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/api/companies') return route.fulfill({ json: { kind: 'listed', companyIds: ['test-company'] } });
+    if (url.pathname === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: [{ id: 'test-company', name: 'Test Winery', date: { week: 1, season: 1, year: 1 } }] } });
     if (url.pathname.endsWith('/commands')) { week++; revision++; return route.fulfill({ json: { kind: 'committed', revision, events: [] } }); }
     return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: 'test-company', revision, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week } } } } } });
   });
   await page.goto('/');
-  await page.getByLabel('Email').fill('test@example.com');
-  await page.getByLabel('Password').fill('example-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Open company/ }).click();
+  await page.getByLabel('User Name').fill('Test Player');
+  await page.getByRole('button', { name: 'Create User' }).click();
+  await page.getByRole('button', { name: /Test Winery/ }).click();
   await expect(page.getByLabel('Calendar')).toContainText('Week 1');
   await page.getByRole('button', { name: 'Advance time' }).click();
   await expect(page.getByLabel('Calendar')).toContainText('Week 2');

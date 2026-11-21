@@ -209,9 +209,11 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
   it('creates explicitly without overwriting a collision and scopes every operation to the authenticated owner', async () => {
     const companyId = randomUUID();
     const input = candidate(companyId, randomUUID(), randomUUID());
-    expect(await owner.createCompany({ companyId, state: state() })).toEqual({ kind: 'created' });
-    expect(await owner.createCompany({ companyId, state: advance(state()) })).toEqual({ kind: 'not-created' });
-    expect(await other.createCompany({ companyId, state: advance(state()) })).toEqual({ kind: 'not-created' });
+    expect(await owner.createCompany({ companyId, name: 'Winery', state: state() })).toEqual({ kind: 'created' });
+    expect(await owner.listCompanies()).toMatchObject({ kind: 'listed', companies: [{ id: companyId, name: 'Winery', date: { year: 2030, season: 2, week: 3 } }] });
+    expect(await other.listCompanies()).toEqual({ kind: 'listed', companies: [] });
+    expect(await owner.createCompany({ companyId, name: 'Winery', state: advance(state()) })).toEqual({ kind: 'not-created' });
+    expect(await other.createCompany({ companyId, name: 'Winery', state: advance(state()) })).toEqual({ kind: 'not-created' });
     expect(await other.load(companyId)).toEqual({ kind: 'missing' });
     expect(await other.getReceipt(companyId, input.receipt.commandId)).toEqual({ kind: 'absent' });
     expect((await other.commit(input)).kind).toBe('failed');
@@ -227,7 +229,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('serializes different writers and returns one conflict without overwriting the winner', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const first = candidate(companyId, 'first', 'attempt-first');
     const second = candidate(companyId, 'second', 'attempt-second', { next: advance(advance(state())) });
     const results = await Promise.all([owner.commit(first), owner.commit(second)]);
@@ -247,7 +249,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('returns the original receipt before checking a stale replay or a different payload', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const first = candidate(companyId, 'stable-command', 'attempt-one');
     expect(await owner.commit(first)).toEqual({ kind: 'committed' });
     const replay = candidate(companyId, 'stable-command', 'attempt-two', {
@@ -264,7 +266,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('resolves a lost commit response as the one durable receipt', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, randomUUID(), randomUUID());
     const lostResponse = new PostgresCompanySavePort(loseCommitResponse(pool, 2), ownerId);
     expect(await lostResponse.commit(input)).toEqual({ kind: 'unknown' });
@@ -276,7 +278,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('recovers a lost reservation response across ports and fences its delayed retry', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, 'reservation', 'original');
     const lost = new PostgresCompanySavePort(loseCommitResponse(pool), ownerId);
     expect(await lost.commit(input)).toEqual({ kind: 'unknown' });
@@ -294,7 +296,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('keeps a lost fence acknowledgement uncertain while the durable fence prevents continuation', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, 'reserved', 'attempt');
     expect((await new PostgresCompanySavePort(loseCommitResponse(pool), ownerId).commit(input)).kind).toBe('unknown');
     const lostFence = new PostgresCompanySavePort(loseCommitResponse(pool), ownerId);
@@ -308,7 +310,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('rolls back a partial state write and retains its reservation for explicit recovery', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, 'partial', 'attempt');
     expect((await new PostgresCompanySavePort(failReceiptInsert(pool), ownerId).commit(input)).kind).toBe('unknown');
     const loaded = await owner.load(companyId);
@@ -320,7 +322,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('does not claim failure for a duplicate attempt when storage cannot be contacted', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, 'running', 'attempt');
     const pause = pauseFirstTransaction(pool, 'reservation-commit');
     const running = new PostgresCompanySavePort(pause.pool, ownerId).commit(input);
@@ -342,7 +344,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('keeps a healthy reservation while rejecting a competing intent and replaying an older receipt', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const old = candidate(companyId, 'old', 'old-attempt');
     expect((await owner.commit(old)).kind).toBe('committed');
     const input = candidate(companyId, 'running', 'running-attempt', { expectedRevision: 1, next: advance(advance(state())) });
@@ -368,7 +370,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('fences a request before its reservation transaction begins', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const input = candidate(companyId, 'late', 'late-attempt');
     const pause = pauseFirstTransaction(pool, 'begin');
     const late = new PostgresCompanySavePort(pause.pool, ownerId).commit(input);
@@ -384,7 +386,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('fences all deliveries of a canceled command and allows a new decision', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const late = candidate(companyId, 'command', 'late-attempt');
     expect(await owner.resolveAttempt(resolution(late))).toEqual({ kind: 'not-committed' });
     expect((await owner.commit(late)).kind).toBe('failed');
@@ -396,7 +398,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('cancels another reservation for the same intent when fencing a delayed delivery', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const active = candidate(companyId, 'shared-command', 'active-attempt');
     const late = candidate(companyId, 'shared-command', 'late-attempt');
     const pause = pauseFirstTransaction(pool, 'reservation-commit');
@@ -416,7 +418,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('does not cancel a competing payload that reused the command ID', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const active = candidate(companyId, 'shared-command', 'active-attempt', { fingerprint: 'first-payload' });
     const other = candidate(companyId, 'shared-command', 'other-attempt', { fingerprint: 'different-payload' });
     const pause = pauseFirstTransaction(pool, 'reservation-commit');
@@ -434,7 +436,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('returns unavailable if a fence commit response is lost even when the fence was saved', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const late = candidate(companyId, 'command', 'attempt');
     const lostResponse = new PostgresCompanySavePort(loseCommitResponse(pool), ownerId);
     expect((await lostResponse.resolveAttempt(resolution(late))).kind).toBe('unavailable');
@@ -444,7 +446,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('durably fences a mismatched attempt before reporting the conflicting command receipt', async () => {
     const companyId = randomUUID();
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     const winner = candidate(companyId, 'same-command', 'winner', { fingerprint: 'first-payload' });
     const loser = candidate(companyId, 'same-command', 'late-loser', { fingerprint: 'different-payload' });
     expect(await owner.commit(winner)).toEqual({ kind: 'committed' });
@@ -460,13 +462,13 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('preserves invalid records and refuses direct commits over them', async () => {
     const invalidId = randomUUID();
-    await owner.createCompany({ companyId: invalidId, state: state() });
+    await owner.createCompany({ companyId: invalidId, name: 'Winery', state: state() });
     const invalidState = { calendar: { rules: 'invalid' }, evidence: 'keep' };
     await pool.query(`UPDATE winemaker05_private.company_saves SET state = $2::jsonb WHERE company_id = $1`,
       [invalidId, JSON.stringify(invalidState)]);
     expect((await owner.load(invalidId)).kind).toBe('invalid');
     expect((await owner.commit(candidate(invalidId, 'command', 'attempt'))).kind).toBe('failed');
-    expect(await owner.createCompany({ companyId: invalidId, state: state() })).toEqual({ kind: 'not-created' });
+    expect(await owner.createCompany({ companyId: invalidId, name: 'Winery', state: state() })).toEqual({ kind: 'not-created' });
     const saved = await pool.query<{ state: unknown; revision: string }>(
       `SELECT state, revision FROM winemaker05_private.company_saves WHERE company_id = $1`,
       [invalidId],
@@ -476,9 +478,9 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
 
   it('requires valid initial state and cannot overflow JavaScript-safe revisions', async () => {
     const companyId = randomUUID();
-    expect((await owner.createCompany({ companyId, state: {} as CompanyState })).kind).toBe('invalid');
+    expect((await owner.createCompany({ companyId, name: 'Winery', state: {} as CompanyState })).kind).toBe('invalid');
     expect(await owner.load(companyId)).toEqual({ kind: 'missing' });
-    await owner.createCompany({ companyId, state: state() });
+    await owner.createCompany({ companyId, name: 'Winery', state: state() });
     await pool.query(`UPDATE winemaker05_private.company_saves SET revision = 9007199254740991 WHERE company_id = $1`, [companyId]);
     const oldInput = candidate(companyId, 'old', 'old-attempt');
     expect(await owner.commit(oldInput)).toEqual({ kind: 'conflict', currentRevision: Number.MAX_SAFE_INTEGER });

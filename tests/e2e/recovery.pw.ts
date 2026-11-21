@@ -3,7 +3,7 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 async function mockAuthentication(context: BrowserContext) {
   const token = ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'test'].join('.');
   const user = { id: 'test-user', aud: 'authenticated', role: 'authenticated', email: 'test@example.com', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
-  await context.route('**/auth/v1/token?*', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
+  await context.route('**/auth/v1/signup', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
   await context.route('**/auth/v1/user', route => route.fulfill({ json: user }));
 }
 
@@ -13,12 +13,13 @@ function company(week: number, revision: number) {
 
 async function openCompany(page: Page) {
   await page.goto('/');
-  if (await page.getByLabel('Email').isVisible()) {
-    await page.getByLabel('Email').fill('test@example.com');
-    await page.getByLabel('Password').fill('example-password');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByLabel('User Name').or(page.getByRole('button', { name: /Test Winery/ })).or(page.getByLabel('Calendar'))).toBeVisible();
+  if (await page.getByLabel('User Name').isVisible()) {
+    await page.getByLabel('User Name').fill('Test Player');
+    await page.getByRole('button', { name: 'Create User' }).click();
+    await expect(page.getByRole('button', { name: /Test Winery/ })).toBeVisible();
   }
-  await page.getByRole('button', { name: /Open company/ }).click();
+  if (await page.getByRole('button', { name: /Test Winery/ }).isVisible()) await page.getByRole('button', { name: /Test Winery/ }).click();
   await expect(page.getByLabel('Calendar')).toContainText('Week 1');
 }
 
@@ -27,7 +28,7 @@ test('keeps the company active until an uncertain command is recovered', async (
   let commands = 0;
   await context.route('**/api/companies**', route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companyIds: ['test-company'] } });
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: [{ id: 'test-company', name: 'Test Winery', date: { week: 1, season: 1, year: 1 } }] } });
     if (path.endsWith('/commands')) {
       commands += 1;
       return route.fulfill({ json: commands === 1 ? { kind: 'unknown' } : { kind: 'committed', revision: 1 } });
@@ -50,7 +51,7 @@ test('requires a fresh snapshot after a committed command when reload fails', as
   let failReload = false;
   await context.route('**/api/companies**', route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companyIds: ['test-company'] } });
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: [{ id: 'test-company', name: 'Test Winery', date: { week: 1, season: 1, year: 1 } }] } });
     if (path.endsWith('/commands')) {
       committed = true;
       failReload = true;
@@ -77,7 +78,7 @@ test('shares an in-flight command with another tab without allowing it to advanc
   const responseAllowed = new Promise<void>(resolve => { release = resolve; });
   await context.route('**/api/companies**', async route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companyIds: ['test-company'] } });
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: [{ id: 'test-company', name: 'Test Winery', date: { week: 1, season: 1, year: 1 } }] } });
     if (path.endsWith('/commands')) {
       started();
       await responseAllowed;

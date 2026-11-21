@@ -3,6 +3,7 @@ import { readCompanyState } from '../game/core';
 
 type Result = Record<string, unknown> & { kind: string };
 export interface PendingCommand { commandId: string; expectedRevision: number; command: { type: 'time.advance' } }
+export interface CompanySummary { id: string; name: string; date: { year: number; season: number; week: number } | null }
 
 export class CompanyClient {
   constructor(private readonly token: () => Promise<string>, private readonly ownerId: string, private readonly storage: Storage = localStorage) {}
@@ -17,13 +18,13 @@ export class CompanyClient {
     if (!value || typeof value !== 'object' || !('kind' in value) || typeof value.kind !== 'string') throw new Error('Invalid response from the company service.');
     return value as Result;
   }
-  async list(): Promise<string[]> {
+  async list(): Promise<CompanySummary[]> {
     const result = await this.request('/companies');
-    if (result.kind !== 'listed' || !Array.isArray(result.companyIds) || !result.companyIds.every((id: unknown) => typeof id === 'string')) throw new Error('Could not load companies.');
-    return result.companyIds;
+    if (result.kind !== 'listed' || !Array.isArray(result.companies) || !result.companies.every((company: CompanySummary) => company && typeof company.id === 'string' && typeof company.name === 'string' && (company.date === null || (company.date && Number.isSafeInteger(company.date.year) && Number.isSafeInteger(company.date.season) && Number.isSafeInteger(company.date.week))))) throw new Error('Could not load companies.');
+    return result.companies;
   }
-  async create(companyId: string): Promise<void> {
-    const result = await this.request('/companies', { companyId });
+  async create(companyId: string, name: string): Promise<void> {
+    const result = await this.request('/companies', { companyId, name });
     if (result.kind !== 'created' && result.kind !== 'not-created' && result.kind !== 'unknown') throw new Error('Could not create the company.');
     // Loading the owner-scoped ID confirms creation even after a lost response.
     await this.load(companyId);

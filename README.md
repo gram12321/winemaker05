@@ -2,7 +2,7 @@
 
 Winemaker05 is the next iteration of the Winemaker wine-production and business simulation. Its simulation and player experience are being redesigned from the [Winemaker04 reference](https://github.com/gram12321/winemaker04).
 
-The repository contains a React/PixiJS prototype connected to an authenticated company authority and PostgreSQL save adapter. Accounts can create or load a company and advance its calendar. Wine production and other gameplay systems are not implemented yet. See [application flow](docs/WorkingDocs/application-flow.md) for implemented behavior and its limits.
+The repository contains a React/PixiJS prototype connected to an authenticated company authority and PostgreSQL save adapter. Named players can create or load companies and advance their calendars. Wine production and other gameplay systems are not implemented yet. See [application flow](docs/WorkingDocs/application-flow.md) for implemented behavior and its limits.
 
 ## Development
 

@@ -6,6 +6,7 @@ Record stable, agreed domain language here. The definitions below describe 05 de
 
 | Term | Working meaning |
 |---|---|
+| Player | A named identity that can own multiple companies, each with its own game state. |
 | Terroir Potential | The agricultural contribution of a site to what its raw material can become. |
 | Origin Prestige | The commercial premium associated with an origin, distinct from agricultural potential. |
 | Raw Material Anchors | The inherited potential established by the raw material; exact fields and limits remain to be designed. |

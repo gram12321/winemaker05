@@ -9,8 +9,8 @@ const MAX_BODY_BYTES = 16 * 1024;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 export interface CompanyStore extends CompanySavePort {
-  listCompanies(): Promise<{ readonly kind: 'listed'; readonly companyIds: readonly string[] } | { readonly kind: 'unavailable' }>;
-  createCompany(input: { readonly companyId: string; readonly state: CompanyState }): Promise<
+  listCompanies(): Promise<{ readonly kind: 'listed'; readonly companies: readonly { id: string; name: string; date: { year: number; season: number; week: number } | null }[] } | { readonly kind: 'unavailable' }>;
+  createCompany(input: { readonly companyId: string; readonly name: string; readonly state: CompanyState }): Promise<
     | { readonly kind: 'created' }
     | { readonly kind: 'not-created' }
     | { readonly kind: 'invalid'; readonly details: string }
@@ -209,9 +209,9 @@ export function createApiServer(options: ApiOptions): Server {
     if (request.method === 'POST' && url.pathname === '/companies') {
       const body = await readBody(request);
       if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
-      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['companyId']) || !validId(body.value.companyId)) return badRequest();
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['companyId', 'name']) || !validId(body.value.companyId) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
       try {
-        const result = await store.createCompany({ companyId: body.value.companyId, state: initialState });
+        const result = await store.createCompany({ companyId: body.value.companyId, name: body.value.name, state: initialState });
         switch (result.kind) {
           case 'created': return { status: 201, body: { kind: 'created' } };
           case 'not-created': return { status: 409, body: { kind: 'not-created' } };

@@ -105,7 +105,7 @@ suite('HTTP authority and real PostgreSQL', () => {
   it('creates, authorizes, commits and deduplicates through the real store', async () => {
     const base = await start(pool);
     const company = randomUUID();
-    expect(await call(base, '/companies', 'owner', { companyId: company })).toEqual({ status: 201, body: { kind: 'created' } });
+    expect(await call(base, '/companies', 'owner', { companyId: company, name: 'Winery' })).toEqual({ status: 201, body: { kind: 'created' } });
     expect(await call(base, `/companies/${company}`, 'other')).toEqual({ status: 404, body: { kind: 'missing' } });
     const intent = { commandId: 'first', expectedRevision: 0, command };
     const first = await call(base, `/companies/${company}/commands`, 'owner', intent);
@@ -119,7 +119,7 @@ suite('HTTP authority and real PostgreSQL', () => {
   it('recovers a durable uncertain reservation after switching HTTP instances', async () => {
     const firstBase = await start(loseFirstCommitResponse(pool));
     const company = randomUUID();
-    expect((await call(firstBase, '/companies', 'owner', { companyId: company })).status).toBe(201);
+    expect((await call(firstBase, '/companies', 'owner', { companyId: company, name: 'Winery' })).status).toBe(201);
     const pending = { commandId: 'uncertain', expectedRevision: 0, command };
     expect(await call(firstBase, `/companies/${company}/commands`, 'owner', pending)).toEqual({
       status: 202, body: { kind: 'unknown', commandId: 'uncertain' },
