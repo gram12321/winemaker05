@@ -3,10 +3,10 @@
 test('prototype supports scene selection, navigation and dialogs', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  const token = ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'test'].join('.');
-  const user = { id: 'test-user', aud: 'authenticated', role: 'authenticated', email: 'test@example.com', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
-  await page.route('**/auth/v1/signup', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
-  await page.route('**/auth/v1/user', route => route.fulfill({ json: user }));
+  const profile = { id: '11111111-1111-4111-8111-111111111111', name: 'Test Player', createdAt: new Date().toISOString() };
+  await page.route('**/api/players', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { kind: 'players-listed', players: [profile] } })
+    : route.fulfill({ status: 201, json: { kind: 'player-created', player: profile } }));
   let week = 1; let revision = 0;
   await page.route('**/api/companies**', route => {
     const url = new URL(route.request().url());
@@ -15,8 +15,6 @@ test('prototype supports scene selection, navigation and dialogs', async ({ page
     return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: 'test-company', revision, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week } } } } } });
   });
   await page.goto('/');
-  await page.getByLabel('User Name').fill('Test Player');
-  await page.getByRole('button', { name: 'Create User' }).click();
   await page.getByRole('button', { name: /Test Winery/ }).click();
   await expect(page.getByLabel('Calendar')).toContainText('Week 1');
   await page.getByRole('button', { name: 'Advance time' }).click();

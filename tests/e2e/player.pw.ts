@@ -1,22 +1,28 @@
 import { expect, test } from '@playwright/test';
 
-test('named players select their own companies and logout prevents automatic return', async ({ page }) => {
-  let next = 0;
-  const users = new Map<string, { id: string; aud: string; role: string; is_anonymous: boolean; app_metadata: object; user_metadata: { name: string }; created_at: string }>();
-  await page.route('**/auth/v1/signup', async route => {
-    const name = route.request().postDataJSON().data.name as string;
-    const id = `player-${++next}`;
-    const user = { id, aud: 'authenticated', role: 'authenticated', is_anonymous: true, app_metadata: {}, user_metadata: { name }, created_at: '2026-01-01T00:00:00Z' };
-    users.set(id, user);
-    const token = ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({ sub: id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated', is_anonymous: true })).toString('base64url'), 'test'].join('.');
-    await route.fulfill({ json: { access_token: token, refresh_token: `refresh-${id}`, expires_in: 3600, token_type: 'bearer', user } });
+test('database-backed player profiles can return to their companies after local selection is cleared', async ({ page }) => {
+  let nextPlayer = 0;
+  const players: { id: string; name: string; createdAt: string }[] = [];
+  const companies = new Map<string, { id: string; name: string; date: { year: number; season: number; week: number } }[]>();
+  await page.route('**/api/players**', async route => {
+    const request = route.request();
+    if (request.method() === 'GET') return route.fulfill({ json: { kind: 'players-listed', players } });
+    const path = new URL(request.url()).pathname;
+    const body = request.postDataJSON() as { name: string };
+    if (request.method() === 'PATCH') {
+      const player = players.find(value => path.endsWith(value.id));
+      if (player) player.name = body.name;
+      return route.fulfill({ json: { kind: 'player-updated', player } });
+    }
+    const player = { id: `11111111-1111-4111-8111-${String(++nextPlayer).padStart(12, '0')}`, name: body.name, createdAt: new Date().toISOString() };
+    players.push(player);
+    return route.fulfill({ status: 201, json: { kind: 'player-created', player } });
   });
-  await page.route('**/auth/v1/user', route => route.fulfill({ json: users.get('player-1') }));
-  const companies: Record<string, { id: string; name: string; date: { year: number; season: number; week: number } }[]> = {};
   await page.route('**/api/companies**', async route => {
     const request = route.request();
-    const payload = JSON.parse(Buffer.from(request.headers().authorization.split('.')[1], 'base64url').toString()) as { sub: string };
-    const list = companies[payload.sub] ??= [];
+    const playerId = request.headers()['x-winemaker-player-id'] ?? 'guest';
+    const list = companies.get(playerId) ?? [];
+    companies.set(playerId, list);
     const path = new URL(request.url()).pathname;
     if (path === '/api/companies' && request.method() === 'POST') {
       const body = request.postDataJSON() as { companyId: string; name: string };
@@ -24,36 +30,92 @@ test('named players select their own companies and logout prevents automatic ret
       return route.fulfill({ json: { kind: 'created' } });
     }
     if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: list } });
-    const found = list.find(c => path.endsWith(c.id));
-    if (!found) return route.fulfill({ status: 404, json: { kind: 'missing' } });
-    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: found.id, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date: found.date } } } } });
+    const company = list.find(value => path.endsWith(value.id));
+    if (!company) return route.fulfill({ status: 404, json: { kind: 'missing' } });
+    const snapshot = { companyId: company.id, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date: company.date } } };
+    return route.fulfill({ json: { kind: 'loaded', snapshot } });
   });
+
   await page.goto('/');
+  await page.getByRole('button', { name: 'Create New User' }).click();
   await page.getByLabel('User Name').fill('Ada');
   await page.getByRole('button', { name: 'Create User' }).click();
+  await expect(page.getByRole('heading', { name: /My Companies/ })).toBeVisible();
   await page.getByLabel('Company Name').fill('Sunny Estate');
   await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByLabel('Calendar')).toBeVisible();
-  await page.getByRole('button', { name: 'Companies', exact: true }).click();
-  await expect(page.getByRole('button', { name: /Sunny Estate/ })).toContainText('Last played');
-  await page.getByRole('button', { name: 'Create New Company' }).click();
-  await page.getByLabel('Company Name').fill('Hill Winery');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
-  await page.reload();
-  await expect(page.getByLabel('Calendar')).toBeVisible();
   await page.getByRole('button', { name: 'Log out' }).click();
-  await expect(page.getByRole('heading', { name: /User Selection/ })).toBeVisible();
-  await page.reload();
   await expect(page.getByRole('button', { name: /Ada/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Create New User' }).click();
-  await page.getByLabel('User Name').fill('Bea');
-  await page.getByRole('button', { name: 'Create User' }).click();
-  await expect(page.getByText('No companies yet.')).toBeVisible();
-  await page.getByRole('button', { name: 'Log out' }).click();
-  await page.getByRole('button', { name: /Ada/ }).click();
+
+  await page.evaluate(() => localStorage.removeItem('winemaker05.selectedPlayer'));
+  await page.reload();
   await expect(page.getByRole('button', { name: /Sunny Estate/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Hill Winery/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Sunny Estate/ })).toContainText('Week 1');
   await expect(page.getByLabel('Calendar')).not.toBeVisible();
-  await page.getByRole('button', { name: 'README' }).click();
-  await expect(page.getByRole('dialog', { name: 'README' })).toContainText('Winemaker05');
+});
+
+test('starts a company directly without creating a player and can reopen it', async ({ page }) => {
+  let profileCreations = 0;
+  let savedCompany: { id: string; name: string } | undefined;
+  await page.route('**/api/players**', route => {
+    if (route.request().method() === 'POST') profileCreations += 1;
+    return route.fulfill({ json: { kind: 'players-listed', players: [] } });
+  });
+  await page.route('**/api/companies**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    expect(request.headers()['x-winemaker-unassigned']).toBe('1');
+    if (path === '/api/companies' && request.method() === 'POST') {
+      const body = request.postDataJSON() as { companyId: string; name: string };
+      savedCompany = { id: body.companyId, name: body.name };
+      return route.fulfill({ json: { kind: 'created' } });
+    }
+    const date = { year: 1, season: 1, week: 1 };
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: savedCompany ? [{ ...savedCompany, date }] : [] } });
+    if (!savedCompany || !path.endsWith(savedCompany.id)) return route.fulfill({ status: 404, json: { kind: 'missing' } });
+    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: savedCompany.id, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date } } } } });
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Create New User' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Create Company Without User' }).click();
+  await page.getByLabel('Company Name').fill('Unassigned Estate');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByLabel('Calendar')).toBeVisible();
+  expect(profileCreations).toBe(0);
+  await page.getByRole('button', { name: 'Log out' }).click();
+  await expect(page.getByRole('button', { name: /Unassigned Estate/ })).toBeVisible();
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Unassigned Estate/ })).toBeVisible();
+  await page.getByRole('button', { name: /Unassigned Estate/ }).click();
+  await expect(page.getByLabel('Calendar')).toBeVisible();
+});
+
+test('retries the same unassigned company after a lost creation response', async ({ page }) => {
+  const attempts: { companyId: string; name: string }[] = [];
+  await page.route('**/api/players', route => route.fulfill({ json: { kind: 'players-listed', players: [] } }));
+  await page.route('**/api/companies**', route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const date = { year: 1, season: 1, week: 1 };
+    if (path === '/api/companies' && request.method() === 'POST') {
+      attempts.push(request.postDataJSON() as { companyId: string; name: string });
+      return attempts.length === 1 ? route.abort() : route.fulfill({ json: { kind: 'not-created' } });
+    }
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: attempts.length ? [{ id: attempts[0].companyId, name: attempts[0].name, date }] : [] } });
+    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: attempts[0].companyId, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date } } } } });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Company Name').fill('Retry Estate');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Retry creating company' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Company Name')).toHaveValue('Retry Estate');
+  await page.getByRole('button', { name: 'Retry creating company' }).click();
+  await expect(page.getByLabel('Calendar')).toBeVisible();
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
 });

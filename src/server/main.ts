@@ -1,20 +1,18 @@
 import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
 
-import { createSupabaseAuthenticator } from './api/auth';
 import { readCompanyConfigFromEnvironment } from './api/config';
 import { createApiServer } from './api/server';
-import { PostgresCompanySavePort } from './postgres';
+import { PostgresCompanySavePort, PostgresPlayerProfileStore } from './postgres';
 
 /**
- * Local startup entry only. Deployment, account provisioning, TLS/reverse
+ * Local startup entry only. Deployment, provisioning, TLS/reverse
  * proxy, resource limits and production operations must be configured
  * separately. This does not install a schema.
  */
 function start(): void {
   const databaseUrl = process.env.POSTGRES_POOLER_URL?.trim() || process.env.DATABASE_URL?.trim();
-  const supabaseUrl = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
-  if (!databaseUrl || !supabaseUrl) throw new Error('DATABASE_URL and SUPABASE_URL are required.');
+  if (!databaseUrl) throw new Error('DATABASE_URL is required.');
   // pg connection-string SSL parameters override the ssl object. Do not let
   // them silently disable certificate verification or replace the trusted CA.
   const databaseParams = new URL(databaseUrl).searchParams;
@@ -28,7 +26,6 @@ function start(): void {
   }
   const host = process.env.WINEMAKER_HOST ?? '127.0.0.1';
   const newCompany = readCompanyConfigFromEnvironment(process.env);
-  const authenticate = createSupabaseAuthenticator(supabaseUrl);
   const caPath = process.env.POSTGRES_SSL_ROOT_CERT?.trim();
   const pool = new Pool({
     connectionString: databaseUrl,
@@ -37,8 +34,8 @@ function start(): void {
   });
   pool.on('error', () => { console.error('An idle database connection failed.'); });
   const server = createApiServer({
-    authenticate,
     storeForOwner: (ownerId) => new PostgresCompanySavePort(pool, ownerId),
+    playerProfiles: new PostgresPlayerProfileStore(pool),
     newCompany,
   });
 

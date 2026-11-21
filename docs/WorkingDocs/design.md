@@ -4,7 +4,7 @@ Record approved product direction and user-facing decisions here; identify propo
 
 ## Agreed direction
 
-- **Player and company identity:** start with a player name and no email or password. Offer multiple player profiles and separate named companies per player, with return to the last company on a normal visit and explicit player selection after logout. Browser-only players need a future account-linking and recovery flow for portability.
+- **Player and company identity:** start with a player name and no email or password, or enter a company name without creating a user. Store selectable player profiles in the database, keep the last selection in the browser, and allow multiple named companies per player. Profile IDs, rather than Supabase Auth identities, own these 04-style local profiles and companies. Following the 04 flow, companies created without a user are shared as unassigned companies and can be selected from another browser. These no-password profiles and unassigned companies intentionally use 04's shared access model.
 
 - **Preserve the connected wine flow:** vineyard and harvest establish potential; anchors shape later wine development; structural characteristics and taste express the evolving wine; processing continues through maturation and bottle aging; the cellar connects development to commercial management.
 - **Separate vineyard potential from origin prestige:** replace the single Land Value Modifier concept with **Terroir Potential** for agricultural/raw-material contribution and **Origin Prestige** for commercial reputation. These are the agreed working player-facing terms; formulas and their interactions with existing company and vineyard prestige remain open.
@@ -61,7 +61,7 @@ The user accepted all 43 numbered recommendations from the architecture discussi
 
 5. Start the connected playable game with server-authoritative company simulation: trusted server code runs actions and commits results.
 6. Use Supabase/Postgres as the starting **candidate**, with TypeScript game rules in a trusted command service and database transactions for commits. This does not select an installed provider or import 04's schema.
-7. Keep player identity separate from company state and allow multiple companies per player. The later name-only player direction above supersedes the requirement for email/password accounts; the current connected implementation uses anonymous identities.
+7. Keep player identity separate from company state and allow multiple companies per player. The later 04-style database profile direction above supersedes the requirement for account-backed player identity.
 8. Start online; defer offline gameplay and synchronization. The UI-only prototype is unaffected.
 9. Store a current company snapshot atomically and keyed by company. Add separate tables when shared trading, queries or performance require them, while retaining coherent company commits. The 17 November decision below removes save-version handling.
 10. Commit each accepted gameplay command before showing success; keep rendering responsive and show pending state. Any later less-frequent-save policy must explicitly define its loss window.

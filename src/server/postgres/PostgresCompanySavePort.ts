@@ -101,9 +101,11 @@ function validateState(value: unknown): { readonly json: string } | { readonly d
 }
 
 /**
- * Server-only adapter. `ownerId` must come from a verified authentication
- * principal, never a client-selected company or account ID. The host runs the
- * game rules and supplies `next`; clients must not be able to call this port,
+ * Server-only adapter. `ownerId` is derived by the HTTP host from a verified
+ * Supabase subject, an existing selected local-player profile, or the shared
+ * unassigned-company scope. Local-player IDs are intentionally selectable without a
+ * password, matching 04; they are not a private authorization boundary. The
+ * host runs the game rules and supplies `next`; clients cannot call this port,
  * obtain its pool credentials, or access its tables through a direct API.
  *
  * The schema enables RLS without client policies. Table owners and privileged
@@ -112,7 +114,7 @@ function validateState(value: unknown): { readonly json: string } | { readonly d
  */
 export class PostgresCompanySavePort implements CompanySavePort {
   constructor(private readonly pool: Pool, private readonly ownerId: string) {
-    if (!present(ownerId)) throw new Error('An authenticated owner ID is required.');
+    if (!present(ownerId)) throw new Error('A company owner scope is required.');
   }
 
   async listCompanies() {

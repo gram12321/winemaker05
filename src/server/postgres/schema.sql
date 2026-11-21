@@ -5,16 +5,24 @@
 -- path; change this schema directly while the game is not live.
 -- This script does not grant client access.
 --
--- Only a trusted command service may hold the database credentials. The host
--- authenticates each request and binds its verified principal to a port
--- instance; never take the principal, a candidate state, or these credentials
--- from an untrusted client. Do not expose this schema via PostgREST/client APIs.
+-- Only a trusted command service may hold database credentials. It binds each
+-- operation to a verified account subject, an existing selectable player
+-- profile, or the shared unassigned-company scope. Player profiles intentionally have
+-- 04-style shared selection and are not a private authorization boundary. The
+-- service runs game rules; do not expose this schema via client APIs.
 -- RLS below denies roles with table access but no policy. Owners, superusers,
 -- and BYPASSRLS roles can bypass RLS, so RLS is not a substitute for the
 -- owner-scoped queries or for keeping a privileged connection server-only.
 DROP SCHEMA IF EXISTS winemaker05_private CASCADE;
 CREATE SCHEMA winemaker05_private;
 REVOKE ALL ON SCHEMA winemaker05_private FROM PUBLIC;
+
+CREATE TABLE winemaker05_private.player_profiles (
+  player_id uuid PRIMARY KEY,
+  player_name text NOT NULL CHECK (length(btrim(player_name)) BETWEEN 1 AND 80),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX player_profiles_created_idx ON winemaker05_private.player_profiles (created_at, player_id);
 
 CREATE TABLE winemaker05_private.company_saves (
   company_id text PRIMARY KEY CHECK (length(company_id) > 0),
@@ -69,6 +77,7 @@ CREATE TABLE winemaker05_private.attempt_fences (
 );
 
 ALTER TABLE winemaker05_private.company_saves ENABLE ROW LEVEL SECURITY;
+ALTER TABLE winemaker05_private.player_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE winemaker05_private.command_receipts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE winemaker05_private.pending_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE winemaker05_private.attempt_fences ENABLE ROW LEVEL SECURITY;

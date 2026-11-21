@@ -9,9 +9,12 @@ export class CompanyClient {
   constructor(private readonly token: () => Promise<string>, private readonly ownerId: string, private readonly storage: Storage = localStorage) {}
   private key(companyId: string) { return `winemaker05.pending.${this.ownerId}.${companyId}`; }
   private async request(path: string, body?: unknown): Promise<Result> {
+    const credential = await this.token();
+    const isUnassigned = credential === 'unassigned';
+    const isPlayer = credential.startsWith('player:');
     const response = await fetch(`/api${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { authorization: `Bearer ${await this.token()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: { ...(isUnassigned ? { 'x-winemaker-unassigned': '1' } : isPlayer ? { 'x-winemaker-player-id': credential.slice(7) } : { authorization: `Bearer ${credential}` }), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const value: unknown = await response.json();

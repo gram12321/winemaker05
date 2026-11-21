@@ -1,10 +1,10 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
-async function mockAuthentication(context: BrowserContext) {
-  const token = ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({ sub: 'test-user', exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'test'].join('.');
-  const user = { id: 'test-user', aud: 'authenticated', role: 'authenticated', email: 'test@example.com', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
-  await context.route('**/auth/v1/signup', route => route.fulfill({ json: { access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer', user } }));
-  await context.route('**/auth/v1/user', route => route.fulfill({ json: user }));
+async function mockPlayerProfiles(context: BrowserContext) {
+  const profile = { id: '11111111-1111-4111-8111-111111111111', name: 'Test Player', createdAt: new Date().toISOString() };
+  await context.route('**/api/players', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { kind: 'players-listed', players: [profile] } })
+    : route.fulfill({ status: 201, json: { kind: 'player-created', player: profile } }));
 }
 
 function company(week: number, revision: number) {
@@ -13,10 +13,9 @@ function company(week: number, revision: number) {
 
 async function openCompany(page: Page) {
   await page.goto('/');
-  await expect(page.getByLabel('User Name').or(page.getByRole('button', { name: /Test Winery/ })).or(page.getByLabel('Calendar'))).toBeVisible();
-  if (await page.getByLabel('User Name').isVisible()) {
-    await page.getByLabel('User Name').fill('Test Player');
-    await page.getByRole('button', { name: 'Create User' }).click();
+  await expect(page.getByRole('button', { name: /Test Player/ }).or(page.getByRole('button', { name: /Test Winery/ })).or(page.getByLabel('Calendar')).first()).toBeVisible();
+  if (await page.getByRole('button', { name: /Test Player/ }).isVisible()) {
+    await page.getByRole('button', { name: /Test Player/ }).click();
     await expect(page.getByRole('button', { name: /Test Winery/ })).toBeVisible();
   }
   if (await page.getByRole('button', { name: /Test Winery/ }).isVisible()) await page.getByRole('button', { name: /Test Winery/ }).click();
@@ -24,7 +23,7 @@ async function openCompany(page: Page) {
 }
 
 test('keeps the company active until an uncertain command is recovered', async ({ page, context }) => {
-  await mockAuthentication(context);
+  await mockPlayerProfiles(context);
   let commands = 0;
   await context.route('**/api/companies**', route => {
     const path = new URL(route.request().url()).pathname;
@@ -46,7 +45,7 @@ test('keeps the company active until an uncertain command is recovered', async (
 });
 
 test('requires a fresh snapshot after a committed command when reload fails', async ({ page, context }) => {
-  await mockAuthentication(context);
+  await mockPlayerProfiles(context);
   let committed = false;
   let failReload = false;
   await context.route('**/api/companies**', route => {
@@ -70,7 +69,7 @@ test('requires a fresh snapshot after a committed command when reload fails', as
 });
 
 test('shares an in-flight command with another tab without allowing it to advance', async ({ page, context }) => {
-  await mockAuthentication(context);
+  await mockPlayerProfiles(context);
   let revision = 0;
   let release!: () => void;
   let started!: () => void;
@@ -99,7 +98,7 @@ test('shares an in-flight command with another tab without allowing it to advanc
     await expect(other.getByRole('button', { name: 'Resolve pending command' })).toBeVisible();
     await expect(other.getByRole('button', { name: 'Advance time' })).toBeDisabled();
     const lockAvailable = await other.evaluate(() => navigator.locks.request(
-      'winemaker05.command.["test-user","test-company"]', { ifAvailable: true }, lock => Boolean(lock),
+      'winemaker05.command.["player-11111111-1111-4111-8111-111111111111","test-company"]', { ifAvailable: true }, lock => Boolean(lock),
     ));
     expect(lockAvailable).toBe(false);
   } finally {

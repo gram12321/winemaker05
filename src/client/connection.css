@@ -29,6 +29,7 @@
 .wine-button, .outline-button { border: 1px solid #7d3442; border-radius: 4px; padding: 8px 14px; font-size: 12px; cursor: pointer; }
 .wine-button { color: white; background: #7d3442; }
 .outline-button { color: #7d3442; background: #fafafa; }
+.create-user-button { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .full { width: 100%; }
 button:disabled { opacity: .6; cursor: not-allowed; }
 .welcome-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; padding-top: 17px; color: white; font-size: 12px; }

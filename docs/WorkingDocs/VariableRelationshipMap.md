@@ -26,7 +26,8 @@ flowchart LR
   SNAPSHOT --> CLIENT["Browser reloads committed calendar"]
   CLIENT --> VIEW["Calendar in the top bar"]
   SNAPSHOT --> LIST["Company selection: saved calendar"]
-  OWNER["Verified player identity"] --> LIST
+  OWNER["Selected database player profile"] --> LIST
+  UNASSIGNED["Shared unassigned-company scope"] --> LIST
   NAME["Company name"] --> LIST
   LOCAL["Browser last-played selection"] --> LIST
 ```
@@ -37,7 +38,8 @@ flowchart LR
 |---|---|---|---|---|
 | Calendar rules and date | Calendar; part of company state | Explicit weeks per season, seasons per year and an initial date are validated. A time command plans one week and calculates boundary flags. | The authority commits the candidate and the browser reloads the committed date for the top bar. Boundary events are returned by the command but are not displayed. | [Calendar.ts](../../src/game/calendar/Calendar.ts), [AdvanceTime.ts](../../src/game/simulation/AdvanceTime.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx), [App.tsx](../../src/App.tsx) |
 | Company revision | Authority and storage; committed state metadata | Each accepted command is committed with the expected revision and a receipt. | Company sessions publish a confirmed snapshot; stale writes are rejected. | [session.ts](../../src/authority/session.ts), [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts) |
-| Company selection | Owner-scoped company metadata and saved calendar; browser-local last selection | The verified player determines which company names and saved dates are listed; opening a company updates this browser's last selection and last-played date. | The company chooser displays these details and restores the last company on a normal return. | [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
+| Company selection | Player-scoped or shared unassigned company metadata and saved calendar; browser-local last selection | A selected profile scopes its company list; the shared unassigned scope lists companies created without a user. Opening a company updates this browser's last selection and last-played date. | The company chooser displays these details and restores the last company on a normal return. | [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
+| Player profile | Private-schema database row | The welcome screen retrieves profile IDs, names and creation dates; creation and rename update the server record. The selected profile ID scopes its companies. | The profile selector is available after browser-data loss; only the selected ID and last company are browser-local. | [PostgresPlayerProfileStore.ts](../../src/server/postgres/PostgresPlayerProfileStore.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
 
 ## Timing, invariants, and visible effects
 

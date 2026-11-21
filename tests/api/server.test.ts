@@ -45,6 +45,7 @@ async function start(database: OwnerBoundMemory, authenticate: Authenticate = as
   const server = createApiServer({
     authenticate,
     storeForOwner: (owner) => database.store(owner),
+    playerProfiles: { list: async () => [], get: async () => null, create: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }), rename: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }) },
     newCompany: { rules, initialDate },
   });
   server.listen(0, '127.0.0.1');
@@ -80,6 +81,21 @@ async function create(base: string, companyId = 'vineyard') {
 }
 
 describe('company HTTP authority', () => {
+  it('shares unassigned companies without exposing companies belonging to a player', async () => {
+    const database = new OwnerBoundMemory();
+    const base = await start(database);
+    await create(base, 'owned');
+    const headers = { 'x-winemaker-unassigned': '1', 'content-type': 'application/json' };
+    const created = await fetch(`${base}/companies`, { method: 'POST', headers, body: JSON.stringify({ companyId: 'unassigned', name: 'Open Winery' }) });
+    expect(created.status).toBe(201);
+    const listed = await fetch(`${base}/companies`, { headers });
+    expect(await listed.json()).toMatchObject({ kind: 'listed', companies: [{ id: 'unassigned', name: 'Open Winery' }] });
+    const hidden = await fetch(`${base}/companies/owned`, { headers });
+    expect(hidden.status).toBe(404);
+    const anotherClient = await fetch(`${base}/companies/unassigned`, { headers: { 'x-winemaker-unassigned': '1' } });
+    expect(anotherClient.status).toBe(200);
+  });
+
   it('requires authentication, derives ownership from it, and makes inaccessible companies look missing', async () => {
     const database = new OwnerBoundMemory();
     const base = await start(database);
@@ -400,6 +416,7 @@ describe('server-owned company configuration', () => {
     expect(() => createApiServer({
       authenticate: async () => null,
       storeForOwner: (owner) => new OwnerBoundMemory().store(owner),
+      playerProfiles: { list: async () => [], get: async () => null, create: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }), rename: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }) },
       newCompany: { rules, initialDate: { ...initialDate, week: 4 } },
     })).toThrow('Invalid company startup configuration.');
   });

@@ -62,9 +62,11 @@ export type AttemptResolution =
 /**
  * Internal trusted-authority-to-storage boundary, not a client API.
  *
- * The host must authenticate the caller and authorize each company operation.
- * Bind the provider to that trusted identity and enforce ownership at every
- * load, receipt, commit and resolution; a company ID is not authorization.
+ * The host must bind each company operation to a server-derived owner scope:
+ * verified account subject, existing 04-style selectable player profile, or
+ * shared unassigned-company scope. Local player profiles are intentionally not a
+ * private authentication boundary. Enforce the selected scope at every load,
+ * receipt, commit and resolution; a company ID is not the owner scope.
  * The host must run the rules itself, never accept `next` from a client.
  * A provider must validate the entire current state on load, preserve invalid
  * data, and return a coherent authoritative revision. Receipt lookup and load

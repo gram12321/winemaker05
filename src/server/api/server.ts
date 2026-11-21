@@ -18,10 +18,19 @@ export interface CompanyStore extends CompanySavePort {
   >;
 }
 
+export interface PlayerProfileRecord { readonly id: string; readonly name: string; readonly createdAt: string }
+export interface PlayerProfileStore {
+  list(): Promise<readonly PlayerProfileRecord[]>;
+  get(id: string): Promise<PlayerProfileRecord | null>;
+  create(input: { readonly id: string; readonly name: string }): Promise<PlayerProfileRecord>;
+  rename(input: { readonly id: string; readonly name: string }): Promise<PlayerProfileRecord | null>;
+}
+
 export interface ApiOptions {
-  readonly authenticate: Authenticate;
-  /** The trusted verified subject is the only source of this ownership binding. */
+  readonly authenticate?: Authenticate;
+  /** Bind a verified external account principal when an auth adapter is supplied. */
   readonly storeForOwner: (ownerId: string) => CompanyStore;
+  readonly playerProfiles: PlayerProfileStore;
   /** Trusted, explicitly selected calendar rules and date for a new company. */
   readonly newCompany: NewCompanyInput;
 }
@@ -53,6 +62,10 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
 
 function validId(value: unknown): value is string {
   return typeof value === 'string' && ID_PATTERN.test(value);
+}
+
+function validPlayerId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function readCommand(value: unknown): GameCommand | null {
@@ -164,6 +177,9 @@ function badRequest(): PublicResponse {
 /**
  * Minimal trusted HTTP host. The save provider supplies durable pending
  * reservations; local sessions retain uncertainty that has not been persisted.
+ * Requests may use a verified Supabase subject, a selected database profile,
+ * or the shared unassigned-company scope. Selectable profiles and unassigned
+ * companies intentionally have no password barrier, matching 04.
  */
 export function createApiServer(options: ApiOptions): Server {
   const initial = createCompanyState(options.newCompany);
@@ -188,19 +204,57 @@ export function createApiServer(options: ApiOptions): Server {
   }
 
   async function handle(request: IncomingMessage): Promise<PublicResponse> {
+    const url = new URL(request.url ?? '/', 'http://authority.invalid');
+    if (url.pathname === '/players' && request.method === 'GET') {
+      try { return { status: 200, body: { kind: 'players-listed', players: await options.playerProfiles.list() } }; }
+      catch { return { status: 503, body: { kind: 'unavailable' } }; }
+    }
+    if (url.pathname === '/players' && request.method === 'POST') {
+      const body = await readBody(request);
+      if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['name']) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
+      try {
+        const player = await options.playerProfiles.create({ id: randomUUID(), name: body.value.name });
+        return { status: 201, body: { kind: 'player-created', player } };
+      } catch { return { status: 503, body: { kind: 'unavailable' } }; }
+    }
+    const profileRoute = /^\/players\/([^/]+)$/.exec(url.pathname);
+    if (profileRoute && request.method === 'PATCH') {
+      if (!validPlayerId(profileRoute[1])) return badRequest();
+      const body = await readBody(request);
+      if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['name']) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
+      try {
+        const player = await options.playerProfiles.rename({ id: profileRoute[1], name: body.value.name });
+        return player ? { status: 200, body: { kind: 'player-updated', player } } : { status: 404, body: { kind: 'missing' } };
+      } catch { return { status: 503, body: { kind: 'unavailable' } }; }
+    }
     let ownerId: string | null;
     try {
-      ownerId = await options.authenticate(request.headers.authorization);
+      ownerId = options.authenticate ? await options.authenticate(request.headers.authorization) : null;
     } catch {
       request.resume();
       return { status: 503, body: { kind: 'unavailable' } };
+    }
+    if (!ownerId) {
+      const playerId = request.headers['x-winemaker-player-id'];
+      if (validPlayerId(playerId)) {
+        try {
+          if (await options.playerProfiles.get(playerId)) ownerId = `player:${playerId.toLowerCase()}`;
+        } catch {
+          request.resume();
+          return { status: 503, body: { kind: 'unavailable' } };
+        }
+      }
+    }
+    if (!ownerId) {
+      if (request.headers['x-winemaker-unassigned'] === '1') ownerId = 'unassigned';
     }
     if (typeof ownerId !== 'string' || ownerId.length === 0) {
       request.resume();
       return { status: 401, body: { kind: 'unauthorized' } };
     }
 
-    const url = new URL(request.url ?? '/', 'http://authority.invalid');
     const store = options.storeForOwner(ownerId);
     if (request.method === 'GET' && url.pathname === '/companies') {
       const result = await store.listCompanies();

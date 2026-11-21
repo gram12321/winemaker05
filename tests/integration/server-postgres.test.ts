@@ -20,6 +20,7 @@ const newCompany = {
 };
 const command = { type: 'time.advance' };
 const servers: Server[] = [];
+const unassignedCompanies: string[] = [];
 
 /** Allow the real first transaction to commit, then lose its response. */
 function loseFirstCommitResponse(pool: Pool): Pool {
@@ -53,6 +54,7 @@ async function start(pool: Pool): Promise<string> {
   const server = createApiServer({
     authenticate: async (header) => header === 'Bearer owner' ? owner : header === 'Bearer other' ? otherOwner : null,
     storeForOwner: (principal) => new PostgresCompanySavePort(pool, principal),
+    playerProfiles: { list: async () => [], get: async () => null, create: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }), rename: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }) },
     newCompany,
   });
   server.listen(0, '127.0.0.1');
@@ -97,6 +99,7 @@ suite('HTTP authority and real PostgreSQL', () => {
     if (!pool) return;
     try {
       await pool.query('DELETE FROM winemaker05_private.company_saves WHERE owner_id = ANY($1::text[])', [[owner, otherOwner]]);
+      await pool.query('DELETE FROM winemaker05_private.company_saves WHERE company_id = ANY($1::text[]) AND owner_id = $2', [unassignedCompanies, 'unassigned']);
     } finally {
       await pool.end();
     }
@@ -114,6 +117,19 @@ suite('HTTP authority and real PostgreSQL', () => {
     expect((await call(base, `/companies/${company}`, 'owner')).body).toMatchObject({
       kind: 'loaded', snapshot: { revision: 1, state: { calendar: { date: { week: 2 } } } },
     });
+  });
+
+  it('creates and retrieves an unassigned company from separate requests', async () => {
+    const base = await start(pool);
+    const companyId = randomUUID();
+    unassignedCompanies.push(companyId);
+    const headers = { 'x-winemaker-unassigned': '1', 'content-type': 'application/json' };
+    const created = await fetch(`${base}/companies`, { method: 'POST', headers, body: JSON.stringify({ companyId, name: 'Open Winery' }) });
+    expect(created.status).toBe(201);
+    const listed = await fetch(`${base}/companies`, { headers });
+    expect(await listed.json()).toMatchObject({ kind: 'listed', companies: expect.arrayContaining([{ id: companyId, name: 'Open Winery', date: newCompany.initialDate }]) });
+    const loaded = await fetch(`${base}/companies/${companyId}`, { headers });
+    expect(await loaded.json()).toMatchObject({ kind: 'loaded', snapshot: { companyId, revision: 0 } });
   });
 
   it('recovers a durable uncertain reservation after switching HTTP instances', async () => {

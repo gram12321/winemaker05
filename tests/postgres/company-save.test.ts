@@ -203,6 +203,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
       { relname: 'command_receipts', relrowsecurity: true, policies: 0 },
       { relname: 'company_saves', relrowsecurity: true, policies: 0 },
       { relname: 'pending_attempts', relrowsecurity: true, policies: 0 },
+      { relname: 'player_profiles', relrowsecurity: true, policies: 0 },
     ]);
   });
 

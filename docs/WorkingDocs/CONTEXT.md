@@ -6,7 +6,8 @@ Record stable, agreed domain language here. The definitions below describe 05 de
 
 | Term | Working meaning |
 |---|---|
-| Player | A named identity that can own multiple companies, each with its own game state. |
+| Player | A database-backed named profile that can own multiple companies, each with its own game state. Profile selection has no password boundary, matching 04 local players. |
+| Unassigned company | A company created without a player profile and available in the shared unassigned-company selection, matching 04's no-user flow. |
 | Terroir Potential | The agricultural contribution of a site to what its raw material can become. |
 | Origin Prestige | The commercial premium associated with an origin, distinct from agricultural potential. |
 | Raw Material Anchors | The inherited potential established by the raw material; exact fields and limits remain to be designed. |
