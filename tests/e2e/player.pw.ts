@@ -1,20 +1,19 @@
 import { expect, test } from '@playwright/test';
 
 test('database-backed player profiles can return to their companies after local selection is cleared', async ({ page }) => {
-  let nextPlayer = 0;
   const players: { id: string; name: string; createdAt: string }[] = [];
   const companies = new Map<string, { id: string; name: string; date: { year: number; season: number; week: number } }[]>();
   await page.route('**/api/players**', async route => {
     const request = route.request();
     if (request.method() === 'GET') return route.fulfill({ json: { kind: 'players-listed', players } });
     const path = new URL(request.url()).pathname;
-    const body = request.postDataJSON() as { name: string };
+    const body = request.postDataJSON() as { id: string; name: string };
     if (request.method() === 'PATCH') {
       const player = players.find(value => path.endsWith(value.id));
       if (player) player.name = body.name;
       return route.fulfill({ json: { kind: 'player-updated', player } });
     }
-    const player = { id: `11111111-1111-4111-8111-${String(++nextPlayer).padStart(12, '0')}`, name: body.name, createdAt: new Date().toISOString() };
+    const player = { id: body.id, name: body.name, createdAt: new Date().toISOString() };
     players.push(player);
     return route.fulfill({ status: 201, json: { kind: 'player-created', player } });
   });
@@ -118,4 +117,46 @@ test('retries the same unassigned company after a lost creation response', async
   await expect(page.getByLabel('Calendar')).toBeVisible();
   expect(attempts).toHaveLength(2);
   expect(attempts[1]).toEqual(attempts[0]);
+});
+
+test('retries the same player after a lost response and reload', async ({ page }) => {
+  const attempts: { id: string; name: string }[] = [];
+  const players: { id: string; name: string; createdAt: string }[] = [];
+  await page.route('**/api/players', route => {
+    const request = route.request();
+    if (request.method() === 'GET') return route.fulfill({ json: { kind: 'players-listed', players } });
+    const intent = request.postDataJSON() as { id: string; name: string };
+    attempts.push(intent);
+    if (attempts.length === 1) {
+      players.push({ ...intent, createdAt: '2026-01-01T00:00:00.000Z' });
+      return route.abort();
+    }
+    return route.fulfill({ status: 201, json: { kind: 'player-created', player: players[0] } });
+  });
+  await page.route('**/api/companies', route => route.fulfill({ json: { kind: 'listed', companies: [] } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Create New User' }).click();
+  await page.getByLabel('User Name').fill('Ada');
+  await page.getByRole('button', { name: 'Create User' }).click();
+  await expect(page.getByRole('button', { name: 'Retry creating user' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('User Name')).toHaveValue('Ada');
+  await page.getByRole('button', { name: 'Retry creating user' }).click();
+  await expect(page.getByRole('heading', { name: /My Companies/ })).toBeVisible();
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  expect(players).toHaveLength(1);
+  await page.getByRole('button', { name: 'Log out' }).click();
+  await expect(page.getByRole('button', { name: /Ada/ })).toHaveCount(1);
+});
+
+test('lets the player discard an invalid saved company request', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('winemaker05.creation.unassigned', '{invalid'));
+  await page.route('**/api/players', route => route.fulfill({ json: { kind: 'players-listed', players: [] } }));
+  await page.route('**/api/companies', route => route.fulfill({ json: { kind: 'listed', companies: [] } }));
+  await page.goto('/');
+  await expect(page.getByText('The saved company request is invalid.')).toBeVisible();
+  await page.getByRole('button', { name: 'Discard invalid request' }).click();
+  await expect(page.getByLabel('Company Name')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('winemaker05.creation.unassigned'))).toBeNull();
 });

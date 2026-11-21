@@ -131,9 +131,11 @@ describe('trusted company session', () => {
   it('holds writes and switches while a lost response is unresolved', async () => {
     const { saves, session } = setup();
     await session.switchCompany('alpha');
+    expect(session.canDispose()).toBe(true);
     const original = session.getSnapshot();
     saves.nextCommit = 'commit-then-unknown';
     expect(await session.dispatch(envelope('lost'))).toEqual({ kind: 'unknown', commandId: 'lost' });
+    expect(session.canDispose()).toBe(false);
     expect(session.getSnapshot()).toBe(original);
     expect(await session.dispatch(envelope('other'))).toEqual({ kind: 'blocked', reason: 'unresolved' });
     expect(await session.switchCompany('beta')).toEqual({ kind: 'blocked', reason: 'unresolved' });
@@ -144,6 +146,7 @@ describe('trusted company session', () => {
     expect(session.getSnapshot()).toBe(original);
     saves.resolution = 'normal';
     expect(await session.resolve()).toEqual({ kind: 'committed', revision: 1 });
+    expect(session.canDispose()).toBe(true);
     expect(session.getSnapshot()?.state.calendar.date.week).toBe(2);
     expect((await session.dispatch(envelope('lost', 1))).kind).toBe('already-committed');
     expect(saves.writes).toBe(1);
@@ -159,6 +162,7 @@ describe('trusted company session', () => {
     expect(await session.resolve()).toEqual({
       kind: 'sync-required', commandId: 'lost', load: { kind: 'unavailable', details: 'offline' },
     });
+    expect(session.canDispose()).toBe(false);
     expect(await session.dispatch(envelope('other'))).toEqual({ kind: 'blocked', reason: 'unresolved' });
     saves.loadOverrides.delete('alpha');
     // A confirmed receipt is retained even if a later receipt query is unavailable.

@@ -86,6 +86,11 @@ export class CompanySession {
     return pending && immutableCopy({ companyId: pending.companyId, commandId: pending.commandId, fingerprint: pending.fingerprint });
   }
 
+  /** An idle host may release this session only when no recovery state would be lost. */
+  canDispose(): boolean {
+    return !this.unresolved && !this.durablePending && !this.needsRefresh;
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

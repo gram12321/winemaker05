@@ -6,8 +6,8 @@
 -- This script does not grant client access.
 --
 -- Only a trusted command service may hold database credentials. It binds each
--- operation to a verified account subject, an existing selectable player
--- profile, or the shared unassigned-company scope. Player profiles intentionally have
+-- operation to an existing selectable player profile or the shared
+-- unassigned-company scope. Player profiles intentionally have
 -- 04-style shared selection and are not a private authorization boundary. The
 -- service runs game rules; do not expose this schema via client APIs.
 -- RLS below denies roles with table access but no policy. Owners, superusers,

@@ -1,5 +1,25 @@
 import type { CompanyState, DomainEvent, GameCommand } from '../game/core';
 
+export interface CompanySummary {
+  readonly id: string;
+  readonly name: string;
+  readonly date: { readonly year: number; readonly season: number; readonly week: number } | null;
+}
+
+/** Company selection and creation are storage operations, independent of HTTP. */
+export interface CompanyStore extends CompanySavePort {
+  listCompanies(): Promise<
+    | { readonly kind: 'listed'; readonly companies: readonly CompanySummary[] }
+    | { readonly kind: 'unavailable' }
+  >;
+  createCompany(input: { readonly companyId: string; readonly name: string; readonly state: CompanyState }): Promise<
+    | { readonly kind: 'created' }
+    | { readonly kind: 'not-created' }
+    | { readonly kind: 'invalid'; readonly details: string }
+    | { readonly kind: 'unknown' }
+  >;
+}
+
 export interface CompanySnapshot {
   readonly companyId: string;
   readonly revision: number;
@@ -63,8 +83,8 @@ export type AttemptResolution =
  * Internal trusted-authority-to-storage boundary, not a client API.
  *
  * The host must bind each company operation to a server-derived owner scope:
- * verified account subject, existing 04-style selectable player profile, or
- * shared unassigned-company scope. Local player profiles are intentionally not a
+ * an existing selectable player profile or the shared unassigned-company scope.
+ * Player profiles are intentionally not a
  * private authentication boundary. Enforce the selected scope at every load,
  * receipt, commit and resolution; a company ID is not the owner scope.
  * The host must run the rules itself, never accept `next` from a client.

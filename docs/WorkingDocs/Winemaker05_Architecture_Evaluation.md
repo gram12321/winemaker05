@@ -4,7 +4,7 @@
 - **Reviewed baseline:** `63978e9` on `main`, plus the uncommitted corrections described below.
 - **Purpose:** Assess the implemented architecture against the approved [design](design.md), the [technical proposal](Winemaker05_Technical_Architecture_Proposal.md), the [transition overview](Winemaker04_to_05_Transition_Overview.md), the [system migration research](Winemaker04_to_05_System_Migration_Research.md), and the [visual concepts](Winemaker05_UI_Visual_Concepts.md). This is a dated review, not an ongoing implementation-status record.
 
-**Later decision:** The user clarified that 05 is not live and no older saves or versions need compatibility. The current policy in [design.md](design.md) supersedes any historical upgrade or save-version assumptions in this review.
+**Later decisions:** The user clarified that 05 is not live and no older saves or versions need compatibility, and subsequently selected shared name-only player profiles instead of account-backed identity. The current policy in [design.md](design.md) supersedes conflicting historical assumptions in this review. The unused JWT verifier described below was later removed; see [application flow](application-flow.md) for the current implementation.
 
 ## Assessment
 
@@ -24,14 +24,14 @@ React intent -> CompanyClient retains the command and obtains a same-origin lock
   -> browser reloads the committed snapshot -> React calendar
 ```
 
-The simulation is synchronous and independent of the UI and database. [CompanySession](../../src/authority/session.ts) coordinates execution and only publishes a confirmed transition; [PostgresCompanySavePort](../../src/server/postgres/PostgresCompanySavePort.ts) owns storage operations and checks the authenticated owner. [auth.ts](../../src/server/api/auth.ts) verifies bearer-token signature, issuer, audience and expiry. [SceneCanvas](../../src/scene/SceneCanvas.tsx) renders placeholder scenes and translates selection into presentation state; it does not advance the game.
+At the time of this review, the simulation was synchronous and independent of the UI and database. [CompanySession](../../src/authority/session.ts) coordinated execution and published only a confirmed transition; [PostgresCompanySavePort](../../src/server/postgres/PostgresCompanySavePort.ts) owned storage operations and checked the owner. The then-existing JWT verifier checked bearer-token signature, issuer, audience and expiry. [SceneCanvas](../../src/scene/SceneCanvas.tsx) rendered placeholder scenes and translated selection into presentation state; it did not advance the game.
 
 ## Approved direction compared with the implementation
 
 | Approved decisions | Assessment and evidence |
 |---|---|
 | 1–4: layers, company state, coordinator and explicit commands | Implemented for the calendar slice. Domain rules are under [game](../../src/game/), coordination is under [authority](../../src/authority/), and React/Pixi do not mutate game state. Multi-domain transitions and query models have not yet been exercised. |
-| 5–14: trusted authority, accounts, atomic snapshots, revisions and recovery | A candidate implementation exists: [HTTP authority](../../src/server/api/server.ts), [JWT authentication](../../src/server/api/auth.ts), [PostgreSQL adapter](../../src/server/postgres/PostgresCompanySavePort.ts), and [browser client](../../src/client/CompanyClient.ts). Owner isolation, invalid-save preservation, revision conflicts, receipts and recovery have automated coverage. Deployment, a real signed-in browser flow, live role grants and operational hardening remain unverified. |
+| 5–14: trusted authority, accounts, atomic snapshots, revisions and recovery | At the time, the candidate included an HTTP authority, JWT verification, PostgreSQL adapter and browser client. Owner isolation, invalid-save preservation, revision conflicts, receipts and recovery had automated coverage. Deployment, a real signed-in browser flow, live role grants and operational hardening were unverified. |
 | 15–16: one-week manual advance and calendar boundaries | Implemented and tested, including configured weeks/seasons and year boundaries. The selected startup values are defaults for new companies, not settled game balance. |
 | 17–21: ordered multi-domain tick, week-end outcomes, daily wine steps and reproducible randomness | Not implemented beyond the calendar transition. There are no weather, vineyard, work or wine phases to order or validate yet; daily stepping and forecast/random behavior have not been tested. |
 | 22–25: work allocation, partial harvest and obligations | Not implemented. No claims can yet be made about resource contention, applied-work XP, wages or payment order. |

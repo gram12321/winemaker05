@@ -1,20 +1,32 @@
-﻿import type { CompanySnapshot } from '../authority/contracts';
+import type { CompanySnapshot, CompanySummary } from '../authority/contracts';
 import { readCompanyState } from '../game/core';
+import { companyScopeStorageKey, type CompanyScope } from '../shared/companyScope';
+import { isGameId } from '../shared/identifiers';
+import { isValidName } from '../shared/names';
+import { withBrowserLock } from './browserLock';
 
 type Result = Record<string, unknown> & { kind: string };
 export interface PendingCommand { commandId: string; expectedRevision: number; command: { type: 'time.advance' } }
-export interface CompanySummary { id: string; name: string; date: { year: number; season: number; week: number } | null }
+export type { CompanySummary } from '../authority/contracts';
+export type PendingCreation =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'pending'; readonly id: string; readonly name: string }
+  | { readonly kind: 'invalid' };
 
 export class CompanyClient {
-  constructor(private readonly token: () => Promise<string>, private readonly ownerId: string, private readonly storage: Storage = localStorage) {}
-  private key(companyId: string) { return `winemaker05.pending.${this.ownerId}.${companyId}`; }
+  private readonly scope: CompanyScope;
+  private readonly ownerKey: string;
+
+  constructor(scope: CompanyScope, private readonly storage: Storage = localStorage) {
+    this.scope = scope.kind === 'player' ? { kind: 'player', playerId: scope.playerId.toLowerCase() } : { kind: 'unassigned' };
+    this.ownerKey = companyScopeStorageKey(this.scope);
+  }
+  private key(companyId: string) { return `winemaker05.pending.${this.ownerKey}.${companyId}`; }
+  private get creationKey() { return `winemaker05.creation.${this.ownerKey}`; }
   private async request(path: string, body?: unknown): Promise<Result> {
-    const credential = await this.token();
-    const isUnassigned = credential === 'unassigned';
-    const isPlayer = credential.startsWith('player:');
     const response = await fetch(`/api${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { ...(isUnassigned ? { 'x-winemaker-unassigned': '1' } : isPlayer ? { 'x-winemaker-player-id': credential.slice(7) } : { authorization: `Bearer ${credential}` }), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: { ...(this.scope.kind === 'unassigned' ? { 'x-winemaker-unassigned': '1' } : { 'x-winemaker-player-id': this.scope.playerId }), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const value: unknown = await response.json();
@@ -26,11 +38,47 @@ export class CompanyClient {
     if (result.kind !== 'listed' || !Array.isArray(result.companies) || !result.companies.every((company: CompanySummary) => company && typeof company.id === 'string' && typeof company.name === 'string' && (company.date === null || (company.date && Number.isSafeInteger(company.date.year) && Number.isSafeInteger(company.date.season) && Number.isSafeInteger(company.date.week))))) throw new Error('Could not load companies.');
     return result.companies;
   }
-  async create(companyId: string, name: string): Promise<void> {
-    const result = await this.request('/companies', { companyId, name });
-    if (result.kind !== 'created' && result.kind !== 'not-created' && result.kind !== 'unknown') throw new Error('Could not create the company.');
-    // Loading the owner-scoped ID confirms creation even after a lost response.
-    await this.load(companyId);
+  getPendingCreation(): PendingCreation {
+    const raw = this.storage.getItem(this.creationKey);
+    if (raw === null) return { kind: 'none' };
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (value && typeof value === 'object' && 'id' in value && isGameId(value.id) &&
+          'name' in value && isValidName(value.name)) {
+        return { kind: 'pending', id: value.id, name: value.name };
+      }
+    } catch { /* Keep an invalid record until the player explicitly discards it. */ }
+    return { kind: 'invalid' };
+  }
+  async discardInvalidCreation(): Promise<void> {
+    await withBrowserLock(`winemaker05.creation.${this.ownerKey}`, async () => {
+      if (this.getPendingCreation().kind !== 'invalid') throw new Error('The saved company request changed. Refresh and try again.');
+      this.storage.removeItem(this.creationKey);
+    });
+  }
+  async create(name: string): Promise<{ snapshot: CompanySnapshot; pendingId?: string }> {
+    return withBrowserLock(`winemaker05.creation.${this.ownerKey}`, async () => {
+      const saved = this.getPendingCreation();
+      if (saved.kind === 'invalid') throw new Error('The saved company request is invalid. Discard it before creating a company.');
+      const intent = saved.kind === 'pending' ? saved : { kind: 'pending' as const, id: crypto.randomUUID(), name: name.trim() };
+      if (!isValidName(intent.name)) throw new Error('Enter a company name.');
+      this.storage.setItem(this.creationKey, JSON.stringify({ id: intent.id, name: intent.name }));
+      const result = await this.request('/companies', { companyId: intent.id, name: intent.name });
+      if (result.kind !== 'created' && result.kind !== 'not-created' && result.kind !== 'unknown') throw new Error('Could not create the company.');
+      if (result.kind !== 'created') {
+        const companies = await this.list();
+        if (!companies.some(company => company.id === intent.id && company.name === intent.name)) {
+          if (result.kind === 'not-created') {
+            this.storage.removeItem(this.creationKey);
+            throw new Error('The saved request conflicts with an existing company. Select it or create a new company.');
+          }
+          throw new Error('The company creation could not yet be confirmed. Retry the saved request.');
+        }
+      }
+      const loaded = await this.load(intent.id);
+      this.storage.removeItem(this.creationKey);
+      return loaded;
+    });
   }
   async load(companyId: string): Promise<{ snapshot: CompanySnapshot; pendingId?: string }> {
     const result = await this.request(`/companies/${encodeURIComponent(companyId)}`);
@@ -50,14 +98,7 @@ export class CompanyClient {
     throw new Error('A saved pending command is invalid. It has been preserved.');
   }
   private async withCommandLock<T>(companyId: string, action: () => Promise<T>): Promise<T> {
-    // localStorage does not provide an atomic check-and-set across tabs. Hold
-    // the same origin-scoped lock until the command or recovery finishes.
-    if (!navigator.locks) throw new Error('This browser cannot safely coordinate cross-tab commands.');
-    const name = `winemaker05.command.${JSON.stringify([this.ownerId, companyId])}`;
-    return navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
-      if (!lock) throw new Error('Another tab is handling a command for this company.');
-      return action();
-    });
+    return withBrowserLock(`winemaker05.command.${JSON.stringify([this.ownerKey, companyId])}`, action);
   }
   async prepareToSwitch(companyId: string): Promise<void> {
     return this.withCommandLock(companyId, async () => {

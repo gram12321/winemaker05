@@ -1,43 +1,21 @@
-import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
-import { CompanySession, type CompanySavePort, type DispatchResult, type LoadResult, type ResolutionResult, type SwitchResult } from '../../authority';
-import { createCompanyState, type CompanyState, type GameCommand, type NewCompanyInput } from '../../game/core';
-import type { Authenticate } from './auth';
+import type { CompanyStore, DispatchResult, LoadResult, ResolutionResult, SwitchResult } from '../../authority';
+import { createCompanyState, type GameCommand, type NewCompanyInput } from '../../game/core';
+import { companyOwnerId, type CompanyScope } from '../../shared/companyScope';
+import { isGameId, isPlayerId } from '../../shared/identifiers';
+import { isValidName } from '../../shared/names';
+import { CompanySessions } from '../companySessions';
+import type { PlayerProfileStore } from '../playerProfiles';
 
 const MAX_BODY_BYTES = 16 * 1024;
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-
-export interface CompanyStore extends CompanySavePort {
-  listCompanies(): Promise<{ readonly kind: 'listed'; readonly companies: readonly { id: string; name: string; date: { year: number; season: number; week: number } | null }[] } | { readonly kind: 'unavailable' }>;
-  createCompany(input: { readonly companyId: string; readonly name: string; readonly state: CompanyState }): Promise<
-    | { readonly kind: 'created' }
-    | { readonly kind: 'not-created' }
-    | { readonly kind: 'invalid'; readonly details: string }
-    | { readonly kind: 'unknown' }
-  >;
-}
-
-export interface PlayerProfileRecord { readonly id: string; readonly name: string; readonly createdAt: string }
-export interface PlayerProfileStore {
-  list(): Promise<readonly PlayerProfileRecord[]>;
-  get(id: string): Promise<PlayerProfileRecord | null>;
-  create(input: { readonly id: string; readonly name: string }): Promise<PlayerProfileRecord>;
-  rename(input: { readonly id: string; readonly name: string }): Promise<PlayerProfileRecord | null>;
-}
 
 export interface ApiOptions {
-  readonly authenticate?: Authenticate;
-  /** Bind a verified external account principal when an auth adapter is supplied. */
+  /** Bind every operation to its selected player or unassigned scope. */
   readonly storeForOwner: (ownerId: string) => CompanyStore;
   readonly playerProfiles: PlayerProfileStore;
   /** Trusted, explicitly selected calendar rules and date for a new company. */
   readonly newCompany: NewCompanyInput;
-}
-
-interface SessionEntry {
-  readonly session: CompanySession;
-  tail: Promise<void>;
 }
 
 type PublicResponse = { readonly status: number; readonly body: object };
@@ -58,14 +36,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
-}
-
-function validId(value: unknown): value is string {
-  return typeof value === 'string' && ID_PATTERN.test(value);
-}
-
-function validPlayerId(value: unknown): value is string {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function readCommand(value: unknown): GameCommand | null {
@@ -177,31 +147,15 @@ function badRequest(): PublicResponse {
 /**
  * Minimal trusted HTTP host. The save provider supplies durable pending
  * reservations; local sessions retain uncertainty that has not been persisted.
- * Requests may use a verified Supabase subject, a selected database profile,
- * or the shared unassigned-company scope. Selectable profiles and unassigned
+ * Requests use a selected database profile or the shared unassigned-company
+ * scope. Selectable profiles and unassigned
  * companies intentionally have no password barrier, matching 04.
  */
 export function createApiServer(options: ApiOptions): Server {
   const initial = createCompanyState(options.newCompany);
   if (initial.kind !== 'created') throw new Error('Invalid company startup configuration.');
   const initialState = initial.state;
-  const entries = new Map<string, SessionEntry>();
-
-  function getEntry(ownerId: string, companyId: string, store: CompanyStore): SessionEntry {
-    const key = JSON.stringify([ownerId, companyId]);
-    let entry = entries.get(key);
-    if (!entry) {
-      entry = { session: new CompanySession(store, randomUUID), tail: Promise.resolve() };
-      entries.set(key, entry);
-    }
-    return entry;
-  }
-
-  function enqueue<T>(entry: SessionEntry, run: () => Promise<T>): Promise<T> {
-    const result = entry.tail.then(run);
-    entry.tail = result.then(() => undefined, () => undefined);
-    return result;
-  }
+  const sessions = new CompanySessions();
 
   async function handle(request: IncomingMessage): Promise<PublicResponse> {
     const url = new URL(request.url ?? '/', 'http://authority.invalid');
@@ -212,49 +166,46 @@ export function createApiServer(options: ApiOptions): Server {
     if (url.pathname === '/players' && request.method === 'POST') {
       const body = await readBody(request);
       if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
-      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['name']) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['id', 'name']) || !isPlayerId(body.value.id) || !isValidName(body.value.name)) return badRequest();
       try {
-        const player = await options.playerProfiles.create({ id: randomUUID(), name: body.value.name });
-        return { status: 201, body: { kind: 'player-created', player } };
+        const player = await options.playerProfiles.create({ id: body.value.id.toLowerCase(), name: body.value.name });
+        return player ? { status: 201, body: { kind: 'player-created', player } } : { status: 409, body: { kind: 'not-created' } };
       } catch { return { status: 503, body: { kind: 'unavailable' } }; }
     }
     const profileRoute = /^\/players\/([^/]+)$/.exec(url.pathname);
     if (profileRoute && request.method === 'PATCH') {
-      if (!validPlayerId(profileRoute[1])) return badRequest();
+      if (!isPlayerId(profileRoute[1])) return badRequest();
       const body = await readBody(request);
       if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
-      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['name']) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['name']) || !isValidName(body.value.name)) return badRequest();
       try {
         const player = await options.playerProfiles.rename({ id: profileRoute[1], name: body.value.name });
         return player ? { status: 200, body: { kind: 'player-updated', player } } : { status: 404, body: { kind: 'missing' } };
       } catch { return { status: 503, body: { kind: 'unavailable' } }; }
     }
-    let ownerId: string | null;
-    try {
-      ownerId = options.authenticate ? await options.authenticate(request.headers.authorization) : null;
-    } catch {
+    const playerId = request.headers['x-winemaker-player-id'];
+    const unassigned = request.headers['x-winemaker-unassigned'];
+    if (playerId !== undefined && unassigned !== undefined) {
       request.resume();
-      return { status: 503, body: { kind: 'unavailable' } };
+      return badRequest();
     }
-    if (!ownerId) {
-      const playerId = request.headers['x-winemaker-player-id'];
-      if (validPlayerId(playerId)) {
-        try {
-          if (await options.playerProfiles.get(playerId)) ownerId = `player:${playerId.toLowerCase()}`;
-        } catch {
-          request.resume();
-          return { status: 503, body: { kind: 'unavailable' } };
-        }
+    let scope: CompanyScope | undefined;
+    if (isPlayerId(playerId)) {
+      try {
+        if (await options.playerProfiles.get(playerId)) scope = { kind: 'player', playerId };
+      } catch {
+        request.resume();
+        return { status: 503, body: { kind: 'unavailable' } };
       }
+    } else if (playerId === undefined && unassigned === '1') {
+      scope = { kind: 'unassigned' };
     }
-    if (!ownerId) {
-      if (request.headers['x-winemaker-unassigned'] === '1') ownerId = 'unassigned';
-    }
-    if (typeof ownerId !== 'string' || ownerId.length === 0) {
+    if (!scope) {
       request.resume();
       return { status: 401, body: { kind: 'unauthorized' } };
     }
 
+    const ownerId = companyOwnerId(scope);
     const store = options.storeForOwner(ownerId);
     if (request.method === 'GET' && url.pathname === '/companies') {
       const result = await store.listCompanies();
@@ -263,7 +214,7 @@ export function createApiServer(options: ApiOptions): Server {
     if (request.method === 'POST' && url.pathname === '/companies') {
       const body = await readBody(request);
       if (body.kind === 'too-large') return { status: 413, body: { kind: 'too-large' } };
-      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['companyId', 'name']) || !validId(body.value.companyId) || typeof body.value.name !== 'string' || !body.value.name.trim() || body.value.name !== body.value.name.trim() || body.value.name.length > 80) return badRequest();
+      if (body.kind !== 'parsed' || !isRecord(body.value) || !exactKeys(body.value, ['companyId', 'name']) || !isGameId(body.value.companyId) || !isValidName(body.value.name)) return badRequest();
       try {
         const result = await store.createCompany({ companyId: body.value.companyId, name: body.value.name, state: initialState });
         switch (result.kind) {
@@ -282,7 +233,7 @@ export function createApiServer(options: ApiOptions): Server {
     if (!route) return { status: 404, body: { kind: 'missing' } };
     let companyId: string;
     try { companyId = decodeURIComponent(route[1]); } catch { return badRequest(); }
-    if (!validId(companyId)) return badRequest();
+    if (!isGameId(companyId)) return badRequest();
     const action = route[2];
     if (!((request.method === 'GET' && !action) || (request.method === 'POST' && (action === 'commands' || action === 'resolve')))) {
       return { status: 404, body: { kind: 'missing' } };
@@ -296,7 +247,7 @@ export function createApiServer(options: ApiOptions): Server {
       if (body.kind !== 'parsed' || !isRecord(body.value)) return badRequest();
       value = body.value;
       const keys = action === 'commands' ? ['commandId', 'expectedRevision', 'command'] : ['commandId'];
-      if (!exactKeys(value, keys) || !validId(value.commandId)) return badRequest();
+      if (!exactKeys(value, keys) || !isGameId(value.commandId)) return badRequest();
       if (action === 'commands') {
         command = readCommand(value.command);
         if (!command || typeof value.expectedRevision !== 'number' || !Number.isSafeInteger(value.expectedRevision) || value.expectedRevision < 0) return badRequest();
@@ -308,20 +259,17 @@ export function createApiServer(options: ApiOptions): Server {
     const access = await store.load(companyId);
     if (access.kind !== 'loaded') return publicLoad(access);
 
-    const key = JSON.stringify([ownerId, companyId]);
-    const existing = entries.get(key);
-    const entry = existing ?? getEntry(ownerId, companyId, store);
-    return enqueue(entry, async () => {
+    return sessions.run(ownerId, companyId, store, async (session) => {
       // Sessions holding an unresolved operation cannot switch, even to the
       // same company. Otherwise reload here so this instance discovers a
       // reservation made by another instance before handling the request.
-      if (!entry.session.getUnresolvedCommand()) {
-        let loaded = await entry.session.switchCompany(companyId);
-        if (loaded.kind === 'blocked' && loaded.reason === 'sync-required') loaded = await entry.session.refresh();
+      if (!session.getUnresolvedCommand()) {
+        let loaded = await session.switchCompany(companyId);
+        if (loaded.kind === 'blocked' && loaded.reason === 'sync-required') loaded = await session.refresh();
         if (loaded.kind !== 'loaded') return publicLoad(loaded);
       }
 
-      const unresolved = entry.session.getUnresolvedCommand();
+      const unresolved = session.getUnresolvedCommand();
       if (action === 'resolve') {
         if (!unresolved) {
           // A receipt proves success; its absence alone never proves rollback.
@@ -329,7 +277,7 @@ export function createApiServer(options: ApiOptions): Server {
           if (receipt.kind === 'unavailable') return { status: 503, body: { kind: 'unavailable' } };
           if (receipt.kind === 'absent') return { status: 202, body: { kind: 'pending', retry: 'original-command' } };
           const saved = receipt.receipt;
-          const snapshot = entry.session.getSnapshot();
+          const snapshot = session.getSnapshot();
           if (
             saved.companyId !== companyId || saved.commandId !== value!.commandId ||
             typeof saved.fingerprint !== 'string' || saved.fingerprint.length === 0 ||
@@ -339,19 +287,19 @@ export function createApiServer(options: ApiOptions): Server {
           return { status: 200, body: { kind: 'committed', revision: saved.revision } };
         }
         if (unresolved.commandId !== value!.commandId) return badRequest();
-        const result = await entry.session.resolve();
+        const result = await session.resolve();
         return publicResolution(result);
       }
 
       if (!action) {
-        const snapshot = entry.session.getSnapshot();
+        const snapshot = session.getSnapshot();
         if (!snapshot) return { status: 503, body: { kind: 'unavailable' } };
         return { status: 200, body: { kind: 'loaded', snapshot, ...(unresolved ? { pending: { commandId: unresolved.commandId } } : {}) } };
       }
 
       const commandId = value!.commandId as string;
-      const result = await entry.session.dispatch({ companyId, commandId, expectedRevision: value!.expectedRevision as number, command: command! });
-      return publicDispatch(result, entry.session.getUnresolvedCommand()?.commandId);
+      const result = await session.dispatch({ companyId, commandId, expectedRevision: value!.expectedRevision as number, command: command! });
+      return publicDispatch(result, session.getUnresolvedCommand()?.commandId);
     });
   }
 

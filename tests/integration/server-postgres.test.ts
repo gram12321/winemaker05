@@ -7,13 +7,13 @@ import { fileURLToPath } from 'node:url';
 import pg, { type Pool, type PoolClient } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createApiServer } from '../../src/server/api/server';
-import { PostgresCompanySavePort } from '../../src/server/postgres';
+import { PostgresCompanySavePort, PostgresPlayerProfileStore } from '../../src/server/postgres';
 
 // Opt in to a separate disposable local database; never use application data.
 const databaseUrl = process.env.WINEMAKER_HTTP_POSTGRES_TEST_DATABASE_URL;
 const suite = describe.skipIf(!databaseUrl);
-const owner = `integration-owner-${randomUUID()}`;
-const otherOwner = `integration-other-${randomUUID()}`;
+const owner = randomUUID();
+const otherOwner = randomUUID();
 const newCompany = {
   rules: { weeksPerSeason: 3, seasonsPerYear: 4 },
   initialDate: { year: 2030, season: 1, week: 1 },
@@ -21,6 +21,7 @@ const newCompany = {
 const command = { type: 'time.advance' };
 const servers: Server[] = [];
 const unassignedCompanies: string[] = [];
+const createdProfiles: string[] = [];
 
 /** Allow the real first transaction to commit, then lose its response. */
 function loseFirstCommitResponse(pool: Pool): Pool {
@@ -52,9 +53,8 @@ function loseFirstCommitResponse(pool: Pool): Pool {
 
 async function start(pool: Pool): Promise<string> {
   const server = createApiServer({
-    authenticate: async (header) => header === 'Bearer owner' ? owner : header === 'Bearer other' ? otherOwner : null,
     storeForOwner: (principal) => new PostgresCompanySavePort(pool, principal),
-    playerProfiles: { list: async () => [], get: async () => null, create: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }), rename: async ({ id, name }) => ({ id, name, createdAt: new Date().toISOString() }) },
+    playerProfiles: new PostgresPlayerProfileStore(pool),
     newCompany,
   });
   server.listen(0, '127.0.0.1');
@@ -63,10 +63,10 @@ async function start(pool: Pool): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-async function call(base: string, path: string, token: string, body?: unknown) {
+async function call(base: string, path: string, player: 'owner' | 'other', body?: unknown) {
   const response = await fetch(`${base}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    headers: { 'x-winemaker-player-id': player === 'owner' ? owner : otherOwner, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { status: response.status, body: await response.json() as Record<string, unknown> };
@@ -86,6 +86,9 @@ suite('HTTP authority and real PostgreSQL', () => {
       const schema = fileURLToPath(new URL('../../src/server/postgres/schema.sql', import.meta.url));
       await pool.query(await readFile(schema, 'utf8'));
     }
+    const profiles = new PostgresPlayerProfileStore(pool);
+    await profiles.create({ id: owner, name: 'Integration owner' });
+    await profiles.create({ id: otherOwner, name: 'Other integration player' });
   });
 
   afterEach(async () => {
@@ -98,14 +101,16 @@ suite('HTTP authority and real PostgreSQL', () => {
   afterAll(async () => {
     if (!pool) return;
     try {
-      await pool.query('DELETE FROM winemaker05_private.company_saves WHERE owner_id = ANY($1::text[])', [[owner, otherOwner]]);
+      const profiles = [owner, otherOwner, ...createdProfiles];
+      await pool.query('DELETE FROM winemaker05_private.company_saves WHERE owner_id = ANY($1::text[])', [profiles.map(id => `player:${id}`)]);
       await pool.query('DELETE FROM winemaker05_private.company_saves WHERE company_id = ANY($1::text[]) AND owner_id = $2', [unassignedCompanies, 'unassigned']);
+      await pool.query('DELETE FROM winemaker05_private.player_profiles WHERE player_id = ANY($1::uuid[])', [profiles]);
     } finally {
       await pool.end();
     }
   });
 
-  it('creates, authorizes, commits and deduplicates through the real store', async () => {
+  it('creates, scopes, commits and deduplicates through the real stores', async () => {
     const base = await start(pool);
     const company = randomUUID();
     expect(await call(base, '/companies', 'owner', { companyId: company, name: 'Winery' })).toEqual({ status: 201, body: { kind: 'created' } });
@@ -117,6 +122,29 @@ suite('HTTP authority and real PostgreSQL', () => {
     expect((await call(base, `/companies/${company}`, 'owner')).body).toMatchObject({
       kind: 'loaded', snapshot: { revision: 1, state: { calendar: { date: { week: 2 } } } },
     });
+  });
+
+  it('creates and renames a real profile, then uses it to create and reload a company', async () => {
+    const base = await start(pool);
+    const json = { 'content-type': 'application/json' };
+    const created = await fetch(`${base}/players`, { method: 'POST', headers: json, body: JSON.stringify({ id: randomUUID(), name: 'Integration Player' }) });
+    expect(created.status).toBe(201);
+    const { player } = await created.json() as { player: { id: string; name: string } };
+    createdProfiles.push(player.id);
+    const retry = await fetch(`${base}/players`, { method: 'POST', headers: json, body: JSON.stringify({ id: player.id, name: player.name }) });
+    expect(await retry.json()).toMatchObject({ kind: 'player-created', player });
+    const collision = await fetch(`${base}/players`, { method: 'POST', headers: json, body: JSON.stringify({ id: player.id, name: 'Different Player' }) });
+    expect(collision.status).toBe(409);
+    const renamed = await fetch(`${base}/players/${player.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ name: 'Renamed Player' }) });
+    expect(await renamed.json()).toMatchObject({ kind: 'player-updated', player: { id: player.id, name: 'Renamed Player' } });
+    const companyId = randomUUID();
+    const headers = { ...json, 'x-winemaker-player-id': player.id };
+    const company = await fetch(`${base}/companies`, { method: 'POST', headers, body: JSON.stringify({ companyId, name: 'Profile Winery' }) });
+    expect(company.status).toBe(201);
+    const listed = await fetch(`${base}/companies`, { headers });
+    expect(await listed.json()).toMatchObject({ companies: [{ id: companyId, name: 'Profile Winery' }] });
+    const loaded = await fetch(`${base}/companies/${companyId}`, { headers });
+    expect(await loaded.json()).toMatchObject({ kind: 'loaded', snapshot: { companyId, revision: 0 } });
   });
 
   it('creates and retrieves an unassigned company from separate requests', async () => {

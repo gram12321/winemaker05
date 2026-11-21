@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { PlayerProfileRecord, PlayerProfileStore } from '../api/server';
+import type { PlayerProfileRecord, PlayerProfileStore } from '../playerProfiles';
 
 interface PlayerRow { player_id: string; player_name: string; created_at: Date | string }
 
@@ -25,15 +25,17 @@ export class PostgresPlayerProfileStore implements PlayerProfileStore {
     return result.rows[0] ? map(result.rows[0]) : null;
   }
 
-  async create(input: { id: string; name: string }): Promise<PlayerProfileRecord> {
+  async create(input: { id: string; name: string }): Promise<PlayerProfileRecord | null> {
     const result = await this.pool.query<PlayerRow>(
       `INSERT INTO winemaker05_private.player_profiles (player_id, player_name)
-       VALUES ($1, $2) RETURNING player_id, player_name, created_at`,
+       VALUES ($1, $2) ON CONFLICT (player_id) DO NOTHING
+       RETURNING player_id, player_name, created_at`,
       [input.id, input.name],
     );
     const row = result.rows[0];
-    if (!row) throw new Error('Player profile creation returned no row.');
-    return map(row);
+    if (row) return map(row);
+    const existing = await this.get(input.id);
+    return existing?.name === input.name ? existing : null;
   }
 
   async rename(input: { id: string; name: string }): Promise<PlayerProfileRecord | null> {

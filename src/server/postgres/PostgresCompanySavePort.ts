@@ -4,27 +4,20 @@ import {
   type AttemptResolution,
   type CommandReceipt,
   type CommitResult,
+  type CompanyStore,
   type CompanySavePort,
   type LoadResult,
   type PendingAttempt,
   type ReceiptResult,
 } from '../../authority/contracts';
-import { readCompanyState, type CompanyState } from '../../game/core';
+import { readCompanyState } from '../../game/core';
+import { isValidName } from '../../shared/names';
 
 type CommitInput = Parameters<CompanySavePort['commit']>[0];
 type ResolveInput = Parameters<CompanySavePort['resolveAttempt']>[0];
 
-export interface CreateCompanyInput {
-  readonly companyId: string;
-  readonly name: string;
-  readonly state: CompanyState;
-}
-
-export type CreateCompanyResult =
-  | { readonly kind: 'created' }
-  | { readonly kind: 'not-created' }
-  | { readonly kind: 'invalid'; readonly details: string }
-  | { readonly kind: 'unknown' };
+type CreateCompanyInput = Parameters<CompanyStore['createCompany']>[0];
+type CreateCompanyResult = Awaited<ReturnType<CompanyStore['createCompany']>>;
 
 interface CompanyRow extends QueryResultRow {
   revision: string | number;
@@ -102,8 +95,7 @@ function validateState(value: unknown): { readonly json: string } | { readonly d
 
 /**
  * Server-only adapter. `ownerId` is derived by the HTTP host from a verified
- * Supabase subject, an existing selected local-player profile, or the shared
- * unassigned-company scope. Local-player IDs are intentionally selectable without a
+ * selected player profile or the shared unassigned-company scope. Player IDs are intentionally selectable without a
  * password, matching 04; they are not a private authorization boundary. The
  * host runs the game rules and supplies `next`; clients cannot call this port,
  * obtain its pool credentials, or access its tables through a direct API.
@@ -112,7 +104,7 @@ function validateState(value: unknown): { readonly json: string } | { readonly d
  * roles can bypass RLS, so these explicit ownership predicates remain required.
  * The pool must point to the authoritative primary, not a read replica.
  */
-export class PostgresCompanySavePort implements CompanySavePort {
+export class PostgresCompanySavePort implements CompanyStore {
   constructor(private readonly pool: Pool, private readonly ownerId: string) {
     if (!present(ownerId)) throw new Error('A company owner scope is required.');
   }
@@ -134,7 +126,7 @@ export class PostgresCompanySavePort implements CompanySavePort {
 
   /** Explicit insert only; collisions never replace even invalid saved data. */
   async createCompany(input: CreateCompanyInput): Promise<CreateCompanyResult> {
-    if (!input || !present(input.companyId) || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 80 || input.name !== input.name.trim()) return { kind: 'invalid', details: 'A company ID and name are required.' };
+    if (!input || !present(input.companyId) || !isValidName(input.name)) return { kind: 'invalid', details: 'A company ID and name are required.' };
     const validated = validateState(input.state);
     if ('details' in validated) return { kind: 'invalid', details: validated.details };
     try {

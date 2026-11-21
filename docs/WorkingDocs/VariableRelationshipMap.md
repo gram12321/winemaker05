@@ -27,6 +27,10 @@ flowchart LR
   CLIENT --> VIEW["Calendar in the top bar"]
   SNAPSHOT --> LIST["Company selection: saved calendar"]
   OWNER["Selected database player profile"] --> LIST
+  REQUEST["Browser player creation ID + name"] --> PROFILE["Player profile row"]
+  PROFILE --> OWNER
+  REQUEST --> RETRY["Retry same player creation"]
+  RETRY --> PROFILE
   UNASSIGNED["Shared unassigned-company scope"] --> LIST
   NAME["Company name"] --> LIST
   LOCAL["Browser last-played selection"] --> LIST
@@ -36,10 +40,10 @@ flowchart LR
 
 | Variable or group | Owner and state kind | Inputs and transformation | Consumers / changing actions | 05 source |
 |---|---|---|---|---|
-| Calendar rules and date | Calendar; part of company state | Explicit weeks per season, seasons per year and an initial date are validated. A time command plans one week and calculates boundary flags. | The authority commits the candidate and the browser reloads the committed date for the top bar. Boundary events are returned by the command but are not displayed. | [Calendar.ts](../../src/game/calendar/Calendar.ts), [AdvanceTime.ts](../../src/game/simulation/AdvanceTime.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx), [App.tsx](../../src/App.tsx) |
+| Calendar rules and date | Calendar; part of company state | Explicit weeks per season, seasons per year and an initial date are validated. A time command plans one week and calculates boundary flags. | The authority commits the candidate and the browser reloads the committed date for the top bar. Boundary events are returned by the command but are not displayed. | [Calendar.ts](../../src/game/calendar/Calendar.ts), [AdvanceTime.ts](../../src/game/simulation/AdvanceTime.ts), [CompanyWorkspace.tsx](../../src/client/CompanyWorkspace.tsx), [App.tsx](../../src/App.tsx) |
 | Company revision | Authority and storage; committed state metadata | Each accepted command is committed with the expected revision and a receipt. | Company sessions publish a confirmed snapshot; stale writes are rejected. | [session.ts](../../src/authority/session.ts), [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts) |
-| Company selection | Player-scoped or shared unassigned company metadata and saved calendar; browser-local last selection | A selected profile scopes its company list; the shared unassigned scope lists companies created without a user. Opening a company updates this browser's last selection and last-played date. | The company chooser displays these details and restores the last company on a normal return. | [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
-| Player profile | Private-schema database row | The welcome screen retrieves profile IDs, names and creation dates; creation and rename update the server record. The selected profile ID scopes its companies. | The profile selector is available after browser-data loss; only the selected ID and last company are browser-local. | [PostgresPlayerProfileStore.ts](../../src/server/postgres/PostgresPlayerProfileStore.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
+| Company selection | Player-scoped or shared unassigned company metadata and saved calendar; browser-local last selection | A selected profile scopes its company list; the shared unassigned scope lists companies created without a user. Opening a company updates this browser's last selection and last-played date. | The company chooser displays these details and restores the last company on a normal return. | [PostgresCompanySavePort.ts](../../src/server/postgres/PostgresCompanySavePort.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx), [CompanyWorkspace.tsx](../../src/client/CompanyWorkspace.tsx) |
+| Player profile | Private-schema database row; browser-local creation intent until confirmed | The browser generates a stable player ID and retains it with the name for retries. The authority creates the row once for that ID and name; rename changes the server record. The selected profile ID scopes its companies. | The profile selector is available after browser-data loss; the last selection and pending creation are browser-local. | [playerProfiles.ts](../../src/client/playerProfiles.ts), [PostgresPlayerProfileStore.ts](../../src/server/postgres/PostgresPlayerProfileStore.ts), [ConnectedApp.tsx](../../src/client/ConnectedApp.tsx) |
 
 ## Timing, invariants, and visible effects
 

@@ -207,7 +207,7 @@ suite('PostgresCompanySavePort (real PostgreSQL)', () => {
     ]);
   });
 
-  it('creates explicitly without overwriting a collision and scopes every operation to the authenticated owner', async () => {
+  it('creates explicitly without overwriting a collision and scopes every operation to its selected owner', async () => {
     const companyId = randomUUID();
     const input = candidate(companyId, randomUUID(), randomUUID());
     expect(await owner.createCompany({ companyId, name: 'Winery', state: state() })).toEqual({ kind: 'created' });
