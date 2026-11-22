@@ -116,6 +116,14 @@ The user accepted all 43 numbered recommendations from the architecture discussi
 42. Retain staff-driven research and learning through work. Design the research interface and unlocks separately; one-use grants and a separate staff-training activity remain optional.
 43. Select 04 grapes, regions, starting scenarios, buildings and other authored content individually after the 05 mechanics exist. Continue the approved UI prototype with placeholders while detailed cellar and management interactions are designed.
 
+## Core-game implementation authorization, 21–22 November 2026
+
+The user requested implementation of the transition overview's twelve comparison topics, with research of current05/04 and other games before coding each topic. The authorized outcome is a connected playable company loop from vineyard establishment, land value and harvest through winery processing, maturation, bottling, assessment, sales and wine contracts, with working UI. The broader supporting-system migration inventory remains outside this task; only the work, inventory, vessels, cash and NPC commercial support required for this loop is included.
+
+The implementation follows the ownership, deterministic tick, daily development and authority decisions above. Current anchor fields, sensory/taste mappings, contextual target rules, scoring and process/economic coefficients are provisional implementation choices within that authorization. They are documented from source in [application flow](application-flow.md) and the [relationship map](VariableRelationshipMap.md), and do not establish final balance approval. The [implementation plan](../../plans/2026-11-21-core-game-transition.md) records the twelve research/coding streams, review findings and verification evidence.
+
+On 22 November the user also requested completion of PostgreSQL/Supabase setup, supplying a local secrets file for configuration and explicitly reserving Supabase access and SQL application for manual work. Prepare and verify the current-schema SQL locally and provide a manual setup guide; do not connect an agent to Supabase for this task.
+
 ## Remaining open decisions and proposals
 
 - The exact anchor fields and counts, mutable-state vocabulary, six-characteristic starting set, and taste-family/descriptor taxonomy. The 12 anchors, six characteristics, 14 taste families, and 26 descriptors in Winemaker04 are references, not fixed 05 requirements.

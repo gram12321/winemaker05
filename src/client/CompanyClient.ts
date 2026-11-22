@@ -1,12 +1,36 @@
 import type { CompanySnapshot, CompanySummary } from '../authority/contracts';
-import { readCompanyState } from '../game/core';
+import { readCompanyState } from '../game/core/CompanyState';
+import { readGameCommand, type GameCommand } from '../game/core/Commands';
 import { companyScopeStorageKey, type CompanyScope } from '../shared/companyScope';
 import { isGameId } from '../shared/identifiers';
 import { isValidName } from '../shared/names';
 import { withBrowserLock } from './browserLock';
 
 type Result = Record<string, unknown> & { kind: string };
-export interface PendingCommand { commandId: string; expectedRevision: number; command: { type: 'time.advance' } }
+export interface PendingCommand { commandId: string; expectedRevision: number; command: GameCommand }
+export type PendingCommandRecord =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'valid'; readonly raw: string; readonly intent: PendingCommand }
+  | { readonly kind: 'invalid'; readonly raw: string; readonly commandId?: string };
+
+/** Keep an unreadable intent intact while recovering any independently valid ID. */
+export function readPendingCommand(raw: string | null): PendingCommandRecord {
+  if (raw === null) return { kind: 'none' };
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      const commandId = isGameId(record.commandId) ? record.commandId : undefined;
+      const command = readGameCommand(record.command);
+      if (commandId && Number.isSafeInteger(record.expectedRevision) && (record.expectedRevision as number) >= 0 && command &&
+          Object.keys(record).length === 3 && ['commandId', 'expectedRevision', 'command'].every(key => Object.hasOwn(record, key))) {
+        return { kind: 'valid', raw, intent: { commandId, expectedRevision: record.expectedRevision as number, command } };
+      }
+      return { kind: 'invalid', raw, ...(commandId ? { commandId } : {}) };
+    }
+  } catch { /* Preserve malformed data rather than overwrite it. */ }
+  return { kind: 'invalid', raw };
+}
 export type { CompanySummary } from '../authority/contracts';
 export type PendingCreation =
   | { readonly kind: 'none' }
@@ -85,60 +109,74 @@ export class CompanyClient {
     const snapshot = result.snapshot as CompanySnapshot | undefined;
     if (result.kind !== 'loaded' || !snapshot || snapshot.companyId !== companyId || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0 || readCompanyState(snapshot.state).kind !== 'valid') throw new Error(`Company could not be loaded (${result.kind}).`);
     const pending = result.pending as { commandId?: unknown } | undefined;
-    if (pending && typeof pending.commandId !== 'string') throw new Error('Invalid pending command.');
+    if (pending && !isGameId(pending.commandId)) throw new Error('Invalid pending command.');
     return { snapshot, ...(pending ? { pendingId: pending.commandId as string } : {}) };
   }
-  private pending(companyId: string): PendingCommand | null {
-    const raw = this.storage.getItem(this.key(companyId));
-    if (!raw) return null;
-    try {
-      const p: unknown = JSON.parse(raw);
-      if (p && typeof p === 'object' && 'commandId' in p && typeof p.commandId === 'string' && 'expectedRevision' in p && Number.isSafeInteger(p.expectedRevision) && 'command' in p && JSON.stringify(p.command) === '{"type":"time.advance"}') return p as PendingCommand;
-    } catch { /* Preserve malformed records for recovery rather than overwrite them. */ }
-    throw new Error('A saved pending command is invalid. It has been preserved.');
-  }
+  pendingRaw(companyId: string): string | null { return this.storage.getItem(this.key(companyId)); }
   private async withCommandLock<T>(companyId: string, action: () => Promise<T>): Promise<T> {
     return withBrowserLock(`winemaker05.command.${JSON.stringify([this.ownerKey, companyId])}`, action);
   }
   async prepareToSwitch(companyId: string): Promise<void> {
     return this.withCommandLock(companyId, async () => {
-      if (this.hasPending(companyId)) throw new Error('Resolve the pending command first.');
+      if (readPendingCommand(this.pendingRaw(companyId)).kind === 'valid') throw new Error('Resolve the pending command first.');
+      // Another service can have a reservation even when this browser's record
+      // is unreadable. Confirm that no server-known attempt remains before leaving.
+      const loaded = await this.load(companyId);
+      if (loaded.pendingId || readPendingCommand(this.pendingRaw(companyId)).kind === 'valid') throw new Error('Resolve the pending command first.');
     });
   }
   async advance(snapshot: CompanySnapshot): Promise<void> {
+    return this.dispatch(snapshot, { type: 'time.advance' });
+  }
+  async dispatch(snapshot: CompanySnapshot, input: GameCommand): Promise<void> {
+    const command = readGameCommand(input);
+    if (!command) throw new Error('Invalid gameplay command.');
     return this.withCommandLock(snapshot.companyId, async () => {
-      if (this.pending(snapshot.companyId)) throw new Error('Resolve the pending command first.');
-      const pending: PendingCommand = { commandId: crypto.randomUUID(), expectedRevision: snapshot.revision, command: { type: 'time.advance' } };
+      const saved = readPendingCommand(this.pendingRaw(snapshot.companyId));
+      if (saved.kind === 'invalid') throw new Error('A saved pending command is invalid. It has been preserved.');
+      if (saved.kind === 'valid') throw new Error('Resolve the pending command first.');
+      const pending: PendingCommand = { commandId: crypto.randomUUID(), expectedRevision: snapshot.revision, command };
       // Persist before sending; if storage fails, no command is sent.
-      this.storage.setItem(this.key(snapshot.companyId), JSON.stringify(pending));
-      await this.send(snapshot.companyId, pending);
+      const raw = JSON.stringify(pending);
+      this.storage.setItem(this.key(snapshot.companyId), raw);
+      await this.send(snapshot.companyId, pending, raw);
     });
   }
-  private async send(companyId: string, pending: PendingCommand): Promise<void> {
+  private async send(companyId: string, pending: PendingCommand, raw: string): Promise<void> {
     const result = await this.request(`/companies/${encodeURIComponent(companyId)}/commands`, pending);
     if (['committed', 'already-committed', 'rejected', 'conflict', 'failed', 'invalid-input'].includes(result.kind)) {
-      this.storage.removeItem(this.key(companyId));
-      if (!['committed', 'already-committed'].includes(result.kind)) throw new Error(`Time was not advanced (${result.kind}). Reload the company.`);
+      if (this.pendingRaw(companyId) === raw) this.storage.removeItem(this.key(companyId));
+      if (!['committed', 'already-committed'].includes(result.kind)) {
+        const reasons = Array.isArray(result.reasons) && result.reasons.every(v => typeof v === 'string') ? result.reasons.join(' ') : '';
+        throw new Error(reasons || `The action was not committed (${result.kind}). Reload the company.`);
+      }
       return;
     }
     throw new Error('The command outcome is not yet known. Resolve it before continuing.');
   }
   async recover(companyId: string, serverPendingId?: string): Promise<void> {
     return this.withCommandLock(companyId, async () => {
-      const local = this.pending(companyId);
-      const id = serverPendingId ?? local?.commandId;
-      if (!id) return;
-      const result = await this.request(`/companies/${encodeURIComponent(companyId)}/resolve`, { commandId: id });
-      if (result.kind === 'committed' || result.kind === 'not-committed') {
-        if (local?.commandId === id) this.storage.removeItem(this.key(companyId));
+      if (serverPendingId !== undefined && !isGameId(serverPendingId)) throw new Error('The server pending command ID is invalid.');
+      const local = readPendingCommand(this.pendingRaw(companyId));
+      const localId = local.kind === 'valid' ? local.intent.commandId : local.kind === 'invalid' ? local.commandId : undefined;
+      const id = serverPendingId ?? localId;
+      if (!id) {
+        if (local.kind === 'invalid') throw new Error('A saved pending command is invalid. It has been preserved.');
         return;
       }
-      if (result.kind === 'pending' && result.retry === 'original-command' && local?.commandId === id) return this.send(companyId, local);
+      const result = await this.request(`/companies/${encodeURIComponent(companyId)}/resolve`, { commandId: id });
+      if (result.kind === 'committed' || result.kind === 'not-committed') {
+        if (local.kind !== 'none' && localId === id && this.pendingRaw(companyId) === local.raw) this.storage.removeItem(this.key(companyId));
+        return;
+      }
+      if (result.kind === 'pending' && result.retry === 'original-command' && local.kind === 'valid' && localId === id) return this.send(companyId, local.intent, local.raw);
+      if (result.kind === 'pending' && result.retry === 'original-command' && local.kind === 'invalid' && localId === id) {
+        throw new Error('The saved command is unreadable and cannot be replayed. It has been preserved.');
+      }
       throw new Error('A command is still unresolved. Retry recovery before advancing time.');
     });
   }
-  // A malformed record still blocks writes and can be reported by recover().
-  hasPending(companyId: string): boolean { return this.storage.getItem(this.key(companyId)) !== null; }
+  hasPending(companyId: string): boolean { return this.pendingRaw(companyId) !== null; }
 
   /** Other tabs sharing this storage may start or settle a command. */
   subscribePending(companyId: string, onChange: (cleared: boolean) => void): () => void {

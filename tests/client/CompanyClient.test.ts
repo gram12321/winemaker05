@@ -2,8 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompanyClient } from '../../src/client/CompanyClient';
 import type { CompanySnapshot } from '../../src/authority/contracts';
+import { companyStateAt } from '../helpers/CompanyState';
 
-const snapshot: CompanySnapshot = { companyId: 'company', revision: 0, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week: 1 } } } };
+const snapshot: CompanySnapshot = { companyId: 'company', revision: 0, state: companyStateAt({ year: 1, season: 1, week: 1 }, { weeksPerSeason: 3, seasonsPerYear: 4 }) };
 beforeEach(() => {
   const held = new Set<string>();
   vi.stubGlobal('navigator', { locks: {
@@ -86,6 +87,26 @@ describe('company creation recovery', () => {
 });
 
 describe('company client command recovery', () => {
+  it('recovers a wine sale with its exact retained payload and leaves caller input independent', async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce(reply({ kind: 'pending', retry: 'original-command' })).mockResolvedValueOnce(reply({ kind: 'already-committed', revision: 1 }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+    const command = { type: 'wine.sell' as const, lotId: 'lot-2', buyerId: 'restaurant' as const, bottles: 12 };
+    const attempt = client.dispatch(snapshot, command);
+    command.bottles = 24;
+    await expect(attempt).rejects.toThrow('response lost');
+    const original = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(original.command.bottles).toBe(12);
+    await client.recover('company');
+    expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual(original);
+    expect(client.hasPending('company')).toBe(false);
+  });
+  it('shows an authoritative rejection reason and clears the settled intent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'rejected', reasons: ['The bottles are reserved for a contract.'] })));
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+    await expect(client.dispatch(snapshot, { type: 'wine.sell', lotId: 'lot-2', buyerId: 'restaurant', bottles: 12 })).rejects.toThrow('reserved for a contract');
+    expect(client.hasPending('company')).toBe(false);
+  });
   it('retains an uncertain command and retries its original ID and revision after a lost response', async () => {
     const fetcher = vi.fn().mockRejectedValueOnce(new Error('network lost')).mockResolvedValueOnce(reply({ kind: 'pending', retry: 'original-command' })).mockResolvedValueOnce(reply({ kind: 'already-committed', revision: 1 }));
     vi.stubGlobal('fetch', fetcher);
@@ -106,6 +127,102 @@ describe('company client command recovery', () => {
     expect(client.hasPending('company')).toBe(true);
     await expect(client.recover('company')).rejects.toThrow('saved pending command is invalid');
     await expect(client.advance(snapshot)).rejects.toThrow('saved pending command is invalid');
+    expect(localStorage.getItem(key)).toBe('{invalid');
+  });
+  it('resolves a server-known command despite unreadable local data and preserves the unrelated record', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    localStorage.setItem(key, '{invalid');
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'not-committed' }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await client.recover('company', 'server-command');
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ commandId: 'server-command' });
+    expect(localStorage.getItem(key)).toBe('{invalid');
+    expect(client.hasPending('company')).toBe(true);
+  });
+  it.each(['committed', 'not-committed'])('clears only the unchanged malformed record after %s is confirmed for its valid ID', async kind => {
+    const key = 'winemaker05.pending.player-owner.company';
+    localStorage.setItem(key, JSON.stringify({ commandId: 'known-id', expectedRevision: 0, command: { type: 'unknown' } }));
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await client.recover('company');
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ commandId: 'known-id' });
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('does not replay an invalid payload when the original command is requested', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    const raw = JSON.stringify({ commandId: 'known-id', expectedRevision: 0, command: { type: 'unknown' } });
+    localStorage.setItem(key, raw);
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'pending', retry: 'original-command' }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await expect(client.recover('company')).rejects.toThrow(/cannot be replayed/i);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(key)).toBe(raw);
+  });
+  it('does not treat an invalid local ID as a server command ID', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    const raw = JSON.stringify({ commandId: '../bad-id', expectedRevision: 0, command: { type: 'unknown' } });
+    localStorage.setItem(key, raw);
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'not-committed' }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await expect(client.recover('company')).rejects.toThrow('saved pending command is invalid');
+    await expect(client.recover('company', '../server-id')).rejects.toThrow('server pending command ID is invalid');
+    expect(fetcher).not.toHaveBeenCalled();
+    await client.recover('company', 'server-command');
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ commandId: 'server-command' });
+    expect(localStorage.getItem(key)).toBe(raw);
+  });
+  it('preserves an unreadable intent with a different valid ID when resolving another server command', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    const raw = JSON.stringify({ commandId: 'local-id', expectedRevision: 0, command: { type: 'unknown' } });
+    localStorage.setItem(key, raw);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'committed' })));
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await client.recover('company', 'server-command');
+    expect(localStorage.getItem(key)).toBe(raw);
+  });
+  it('preserves a changed local record when an earlier recovery response arrives', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    localStorage.setItem(key, JSON.stringify({ commandId: 'known-id', expectedRevision: 0, command: { type: 'unknown' } }));
+    const replacement = '{a different unreadable record';
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      localStorage.setItem(key, replacement);
+      return reply({ kind: 'committed' });
+    }));
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await client.recover('company');
+    expect(localStorage.getItem(key)).toBe(replacement);
+  });
+  it('leaves an unidentified malformed command in place when switching after a server check', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    localStorage.setItem(key, '');
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'loaded', snapshot }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await client.prepareToSwitch('company');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(key)).toBe('');
+    await expect(client.advance(snapshot)).rejects.toThrow('saved pending command is invalid');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('does not leave while the server still reports an unresolved command', async () => {
+    const key = 'winemaker05.pending.player-owner.company';
+    localStorage.setItem(key, '{invalid');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'loaded', snapshot, pending: { commandId: 'server-command' } })));
+    const client = new CompanyClient({ kind: 'player', playerId: 'owner' });
+
+    await expect(client.prepareToSwitch('company')).rejects.toThrow('Resolve the pending command first');
     expect(localStorage.getItem(key)).toBe('{invalid');
   });
   it('blocks new commands while another attempt remains unresolved', async () => {

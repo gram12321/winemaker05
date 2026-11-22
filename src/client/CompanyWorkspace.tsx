@@ -4,7 +4,7 @@ import App from '../App';
 import { companyScopeStorageKey, type CompanyScope } from '../shared/companyScope';
 import { MAX_NAME_LENGTH } from '../shared/names';
 import type { ActiveSelection } from './activeSelection';
-import { CompanyClient, type CompanySummary } from './CompanyClient';
+import { CompanyClient, readPendingCommand, type CompanySummary } from './CompanyClient';
 import Welcome from './Welcome';
 
 export default function CompanyWorkspace({ active, onLogout, onRename }: { active: ActiveSelection; onLogout: () => Promise<void>; onRename: (name: string) => Promise<void> }) {
@@ -30,8 +30,9 @@ export default function CompanyWorkspace({ active, onLogout, onRename }: { activ
   const pendingCreation = client.getPendingCreation();
   const companyId = snapshot?.companyId;
   const subscribePending = useCallback((notify: () => void) => companyId ? client.subscribePending(companyId, cleared => { if (cleared) setNeedsRefresh(true); notify(); }) : () => {}, [client, companyId]);
-  const getPending = useCallback(() => companyId ? client.hasPending(companyId) : false, [client, companyId]);
-  const localPending = useSyncExternalStore(subscribePending, getPending, () => false);
+  const getPending = useCallback(() => companyId ? client.pendingRaw(companyId) : null, [client, companyId]);
+  const localPendingRaw = useSyncExternalStore(subscribePending, getPending, () => null);
+  const localPending = readPendingCommand(localPendingRaw);
   async function list() { const result = await client.list(); setCompanies(result); setLoadedList(true); return result; }
   async function open(id: string, remember = true) {
     const loaded = await client.load(id);
@@ -69,9 +70,20 @@ export default function CompanyWorkspace({ active, onLogout, onRename }: { activ
     localStorage.setItem(lastKey, id); localStorage.setItem(`${lastKey}.${id}`, new Date().toISOString());
     setSnapshot(loaded.snapshot); setPendingId(loaded.pendingId); setNeedsRefresh(false);
   }
-  const unresolved = Boolean(pendingId || localPending);
+  const unresolved = Boolean(pendingId || localPending.kind !== 'none');
+  const switchBlocked = Boolean(pendingId || localPending.kind === 'valid');
+  const canResolve = Boolean(pendingId || localPending.kind === 'valid' || (localPending.kind === 'invalid' && localPending.commandId));
+  async function prepareToLeave(id: string) {
+    try { await client.prepareToSwitch(id); }
+    catch (error) {
+      // A different service may have reserved a command since this view loaded.
+      // Refresh so its recovery control is available before reporting the block.
+      try { await open(id, false); } catch { /* Keep the previous snapshot. */ }
+      throw error;
+    }
+  }
   async function logout() {
-    if (snapshot) { if (unresolved) throw new Error('Resolve the pending command first.'); await client.prepareToSwitch(snapshot.companyId); }
+    if (snapshot) { if (switchBlocked) throw new Error('Resolve the pending command first.'); await prepareToLeave(snapshot.companyId); }
     await onLogout();
   }
   const bar = <div className="account-bar"><span>{profile?.name ?? 'Unassigned company'}</span>{!unassigned && <button type="button" disabled={busy} onClick={() => setEditingPlayer(v => !v)}>Player profile</button>}<button type="button" disabled={busy} onClick={() => void run(logout)}>Log out</button></div>;
@@ -80,5 +92,23 @@ export default function CompanyWorkspace({ active, onLogout, onRename }: { activ
     {loadedList && !companies.length && <p className="hint">No companies yet.</p>}
     {pendingCreation.kind === 'invalid' ? <div className="entry-form"><p role="alert">The saved company request is invalid.</p><button type="button" className="outline-button" disabled={busy} onClick={() => void run(() => client.discardInvalidCreation())}>Discard invalid request</button></div> : !creating && companies.length > 0 && pendingCreation.kind === 'none' ? <button className="outline-button full" onClick={() => setCreating(true)}>♧ Create New Company</button> : <form className="entry-form" onSubmit={event => { event.preventDefault(); void run(create); }}><label>Company Name<input required maxLength={MAX_NAME_LENGTH} placeholder="Enter company name" disabled={pendingCreation.kind === 'pending'} value={pendingCreation.kind === 'pending' ? pendingCreation.name : companyName} onChange={event => setCompanyName(event.target.value)} /></label><button className="wine-button" disabled={busy || (!companyName.trim() && pendingCreation.kind === 'none')}>{pendingCreation.kind === 'pending' ? 'Retry creating company' : 'Start'}</button>{companies.length > 0 && pendingCreation.kind === 'none' && <> <button type="button" className="outline-button" onClick={() => setCreating(false)}>Cancel</button></>}</form>}
     {message && <p role="alert">{message}</p>}</Welcome></>;
-  return <>{bar}{editor}<App calendar={snapshot.state.calendar} busy={busy} canAdvance={!unresolved && !needsRefresh} onAdvance={() => void run(() => actAndRefresh(snapshot.companyId, () => client.advance(snapshot)))} /><div className="connection-status"><button type="button" disabled={busy || unresolved} onClick={() => void run(async () => { await client.prepareToSwitch(snapshot.companyId); setSnapshot(null); setPendingId(undefined); setNeedsRefresh(false); await list(); })}>Companies</button>{unresolved && <button type="button" disabled={busy} onClick={() => void run(() => actAndRefresh(snapshot.companyId, () => client.recover(snapshot.companyId, pendingId)))}>Resolve pending command</button>}{needsRefresh && <button type="button" disabled={busy} onClick={() => void run(() => open(snapshot.companyId, false))}>Refresh company</button>}{message && <span role="alert">{message}</span>}</div></>;
+  return <>
+    {bar}{editor}
+    {localPending.kind === 'invalid' && <div className="connection-status" role="status">
+      This company is read-only because its saved command is unreadable. <a href="#saved-command-recovery" style={{ color: 'inherit' }}>Review saved command</a>
+    </div>}
+    <App company={snapshot.state} onCommand={command => void run(() => actAndRefresh(snapshot.companyId, () => client.dispatch(snapshot, command)))} calendar={snapshot.state.calendar} busy={busy} canAdvance={!unresolved && !needsRefresh} onAdvance={() => void run(() => actAndRefresh(snapshot.companyId, () => client.advance(snapshot)))} />
+    <div className="connection-status">
+      <button type="button" disabled={busy || switchBlocked} onClick={() => void run(async () => { await prepareToLeave(snapshot.companyId); setSnapshot(null); setPendingId(undefined); setNeedsRefresh(false); await list(); })}>Companies</button>
+      {canResolve && <button type="button" disabled={busy} onClick={() => void run(() => actAndRefresh(snapshot.companyId, () => client.recover(snapshot.companyId, pendingId)))}>Resolve pending command</button>}
+      {needsRefresh && <button type="button" disabled={busy} onClick={() => void run(() => open(snapshot.companyId, false))}>Refresh company</button>}
+      {localPending.kind === 'invalid' && <details id="saved-command-recovery">
+        <summary>Unreadable saved command</summary>
+        <p>Actions in this company are disabled while its unreadable saved command is preserved. {pendingId ? 'Resolve the server command before leaving.' : localPending.commandId ? 'Try resolving its saved command ID, or leave this company with the record preserved.' : 'Copy the record below or leave this company with the record preserved.'}</p>
+        <label>Saved command record<textarea aria-label="Saved command record" readOnly rows={3} value={localPending.raw} /></label>{' '}
+        <button type="button" disabled={busy} onClick={() => void run(async () => { if (!navigator.clipboard) throw new Error('Select the saved command record to copy it.'); await navigator.clipboard.writeText(localPending.raw); setMessage('Saved command copied.'); })}>Copy saved command</button>
+      </details>}
+      {message && <span role="alert">{message}</span>}
+    </div>
+  </>;
 }

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { companyStateAt } from '../helpers/CompanyState';
 
 test('database-backed player profiles can return to their companies after local selection is cleared', async ({ page }) => {
   const players: { id: string; name: string; createdAt: string }[] = [];
@@ -31,7 +32,7 @@ test('database-backed player profiles can return to their companies after local 
     if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: list } });
     const company = list.find(value => path.endsWith(value.id));
     if (!company) return route.fulfill({ status: 404, json: { kind: 'missing' } });
-    const snapshot = { companyId: company.id, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date: company.date } } };
+    const snapshot = { companyId: company.id, revision: 0, state: companyStateAt(company.date) };
     return route.fulfill({ json: { kind: 'loaded', snapshot } });
   });
 
@@ -72,7 +73,7 @@ test('starts a company directly without creating a player and can reopen it', as
     const date = { year: 1, season: 1, week: 1 };
     if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: savedCompany ? [{ ...savedCompany, date }] : [] } });
     if (!savedCompany || !path.endsWith(savedCompany.id)) return route.fulfill({ status: 404, json: { kind: 'missing' } });
-    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: savedCompany.id, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date } } } } });
+    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: savedCompany.id, revision: 0, state: companyStateAt(date) } } });
   });
 
   await page.goto('/');
@@ -104,7 +105,7 @@ test('retries the same unassigned company after a lost creation response', async
       return attempts.length === 1 ? route.abort() : route.fulfill({ json: { kind: 'not-created' } });
     }
     if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: attempts.length ? [{ id: attempts[0].companyId, name: attempts[0].name, date }] : [] } });
-    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: attempts[0].companyId, revision: 0, state: { calendar: { rules: { weeksPerSeason: 12, seasonsPerYear: 4 }, date } } } } });
+    return route.fulfill({ json: { kind: 'loaded', snapshot: { companyId: attempts[0].companyId, revision: 0, state: companyStateAt(date) } } });
   });
 
   await page.goto('/');

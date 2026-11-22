@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { companyStateAt } from '../helpers/CompanyState';
 
 async function mockPlayerProfiles(context: BrowserContext) {
   const profile = { id: '11111111-1111-4111-8111-111111111111', name: 'Test Player', createdAt: new Date().toISOString() };
@@ -8,7 +9,7 @@ async function mockPlayerProfiles(context: BrowserContext) {
 }
 
 function company(week: number, revision: number) {
-  return { kind: 'loaded', snapshot: { companyId: 'test-company', revision, state: { calendar: { rules: { weeksPerSeason: 3, seasonsPerYear: 4 }, date: { year: 1, season: 1, week } } } } };
+  return { kind: 'loaded', snapshot: { companyId: 'test-company', revision, state: companyStateAt({ year: 1, season: 1, week }, { weeksPerSeason: 3, seasonsPerYear: 4 }) } };
 }
 
 async function openCompany(page: Page) {
@@ -42,6 +43,42 @@ test('keeps the company active until an uncertain command is recovered', async (
   await page.getByRole('button', { name: 'Resolve pending command' }).click();
   await expect(page.getByLabel('Calendar')).toContainText('Week 2');
   await expect(page.getByRole('button', { name: 'Companies', exact: true })).toBeEnabled();
+});
+
+test('resolves a server command and preserves an unreadable local intent when switching companies', async ({ page, context }) => {
+  await mockPlayerProfiles(context);
+  const key = 'winemaker05.pending.player-11111111-1111-4111-8111-111111111111.test-company';
+  await page.addInitScript(({ storageKey }) => localStorage.setItem(storageKey, '{unreadable'), { storageKey: key });
+  let serverPending = true;
+  let resolvedId: string | undefined;
+  await context.route('**/api/companies**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/companies') return route.fulfill({ json: { kind: 'listed', companies: [
+      { id: 'test-company', name: 'Test Winery', date: { week: 1, season: 1, year: 1 } },
+      { id: 'other-company', name: 'Other Winery', date: { week: 1, season: 1, year: 1 } },
+    ] } });
+    if (path.endsWith('/resolve')) {
+      resolvedId = route.request().postDataJSON().commandId;
+      serverPending = false;
+      return route.fulfill({ json: { kind: 'not-committed' } });
+    }
+    if (path === '/api/companies/other-company') return route.fulfill({ json: { ...company(1, 0), snapshot: { ...company(1, 0).snapshot, companyId: 'other-company' } } });
+    return route.fulfill({ json: { ...company(1, 0), ...(serverPending ? { pending: { commandId: 'server-command' } } : {}) } });
+  });
+
+  await openCompany(page);
+  await expect(page.getByRole('button', { name: 'Advance time' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Companies', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Resolve pending command' }).click();
+  await expect(page.getByRole('button', { name: 'Companies', exact: true })).toBeEnabled();
+  expect(resolvedId).toBe('server-command');
+  await expect(page.getByRole('button', { name: 'Advance time' })).toBeDisabled();
+  await page.getByText('Unreadable saved command', { exact: true }).click();
+  await expect(page.getByLabel('Saved command record')).toHaveValue('{unreadable');
+  await page.getByRole('button', { name: 'Companies', exact: true }).click();
+  await page.getByRole('button', { name: /Other Winery/ }).click();
+  await expect(page.getByRole('button', { name: 'Advance time' })).toBeEnabled();
+  expect(await page.evaluate(storageKey => localStorage.getItem(storageKey), key)).toBe('{unreadable');
 });
 
 test('requires a fresh snapshot after a committed command when reload fails', async ({ page, context }) => {

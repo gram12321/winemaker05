@@ -13,6 +13,8 @@
 -- RLS below denies roles with table access but no policy. Owners, superusers,
 -- and BYPASSRLS roles can bypass RLS, so RLS is not a substitute for the
 -- owner-scoped queries or for keeping a privileged connection server-only.
+BEGIN;
+
 DROP SCHEMA IF EXISTS winemaker05_private CASCADE;
 CREATE SCHEMA winemaker05_private;
 REVOKE ALL ON SCHEMA winemaker05_private FROM PUBLIC;
@@ -99,3 +101,4 @@ $security$;
 
 -- Retain receipts and fences for as long as any matching request can be retried
 -- or arrive late. No pruning policy is assumed by this initial candidate.
+COMMIT;

@@ -1,0 +1,75 @@
+.game-layout, .game-cellar-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(265px, 340px); gap: 14px; align-items: start; }
+.game-cellar-layout { grid-template-columns: minmax(190px, 265px) minmax(0, 1fr); }
+.game-stack { display: grid; gap: 12px; min-width: 0; }
+.game-grid, .game-action-grid, .game-assessment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.game-action-grid { align-items: start; }
+.game-card, .game-banner, .game-dashboard > div { min-width: 0; padding: 16px; border: 1px solid #e1dacb; border-radius: 7px; background: #fcfaf4; box-shadow: 0 4px 16px #5144310b; }
+.game-banner { background: linear-gradient(110deg, #f5ecdd, #e5e8d8); }
+.game-banner-scene { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.game-context-scene { position: relative; width: 100%; max-width: 210px; aspect-ratio: 1000 / 530; flex: 0 0 38%; overflow: hidden; border: 1px solid #dfd5c4; border-radius: 5px; background: #b9c1a8; pointer-events: none; }
+.game-card h2, .game-banner h2 { margin: 4px 0 8px; font-size: 21px; }
+.game-card h3, .game-management-content h3 { margin: 5px 0 8px; font-size: 18px; }
+.game-card h4 { margin: 0; font: 600 13px 'Segoe UI', sans-serif; }
+.game-card p, .game-banner p, .game-activity p, .game-note p { margin: 6px 0; color: #716759; font-size: 12px; line-height: 1.45; }
+.game-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.game-card-heading h3, .game-card-heading h2 { margin-bottom: 4px; }
+.game-tag { flex: none; padding: 4px 7px; border: 1px solid #e3d5bd; border-radius: 20px; background: #f5eee0; color: #775e43; font-size: 10px; text-transform: capitalize; }
+.game-empty { margin: 0; padding: 16px; border: 1px dashed #d9cdbb; border-radius: 6px; color: #807466; background: #faf7ef; font-size: 12px; line-height: 1.5; }
+.game-metrics, .game-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 7px; margin: 12px 0; }
+.game-metrics div { padding: 8px; border: 1px solid #eee6d9; border-radius: 5px; background: #faf7f0; }
+.game-metrics dt, .game-dashboard dt { color: #897d6d; font-size: 10px; }
+.game-metrics dd, .game-dashboard dd { margin: 4px 0 0; color: #514235; font: 15px Georgia, serif; }
+.game-dashboard { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 0; }
+.game-dashboard dd { font-size: 23px; }
+.game-form { display: grid; gap: 9px; min-width: 0; }
+.game-form h2, .game-form h3, .game-form h4, .game-form p { margin: 0; }
+.game-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.game-form label, .game-inline label { display: grid; gap: 4px; color: #6d6052; font-size: 11px; font-weight: 600; }
+.game-form input:not([type=checkbox]):not([type=range]), .game-form select, .game-inline input { width: 100%; min-width: 0; min-height: 32px; padding: 6px 8px; border: 1px solid #d9cdbb; border-radius: 4px; background: #fffdf8; color: #41372e; font: inherit; }
+.game-form input[type=range] { width: 100%; accent-color: #775143; }
+.game-form fieldset { min-width: 0; margin: 0; padding: 8px; border: 1px solid #e9e0d1; border-radius: 5px; }
+.game-form legend { padding: 0 3px; color: #6d6052; font-size: 11px; font-weight: 600; }
+.game-checks { display: flex; flex-wrap: wrap; gap: 7px 12px; }
+.game-checks label { display: inline-flex; align-items: center; gap: 5px; font-weight: 400; }
+.game-checks input { accent-color: #775143; }
+.game-card button, .game-activity button { width: fit-content; min-height: 32px; padding: 6px 10px; border: 1px solid #bea88e; border-radius: 4px; color: #604537; background: #f7f0e4; font-size: 11px; font-weight: 700; cursor: pointer; }
+.game-card button:hover:not(:disabled), .game-activity button:hover:not(:disabled) { background: #ebddc9; }
+.game-card button.game-primary { color: #fff9ed; border-color: #654336; background: #69483c; }
+.game-card button:disabled, .game-activity button:disabled { opacity: .48; cursor: not-allowed; }
+.game-card .game-warning, .game-activity .game-warning { color: #994c36; }
+.game-inline { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; }
+.game-inline label { width: 70px; }
+.game-activity-panel { max-height: calc(100vh - 160px); overflow-y: auto; padding: 12px; }
+.game-activity { padding: 11px; border: 1px solid #e8dece; border-radius: 5px; background: #fffdf8; font-size: 12px; }
+.game-activity progress { display: block; width: 100%; height: 8px; margin: 8px 0; accent-color: #78805d; }
+.game-lot-list { display: grid; gap: 6px; margin-top: 10px; }
+.game-card .game-lot-list button { display: grid; width: 100%; gap: 4px; padding: 10px; text-align: left; font-weight: 400; }
+.game-lot-list button.is-selected { border-color: #9b7650; background: #f3ead9; }
+.game-lot-list span, .game-lot-list small { color: #827568; font-size: 10px; }
+.game-status { padding: 8px; border-radius: 4px; background: #f3eee2; }
+.game-assessment { min-width: 0; padding: 12px; border: 1px solid #e6ddcf; border-radius: 5px; }
+.game-assessment h4 { display: flex; justify-content: space-between; gap: 10px; }
+.game-assessment dl { margin: 8px 0 0; }
+.game-assessment dl > div { padding: 6px 0; border-top: 1px solid #eee7db; }
+.game-assessment dt { display: flex; justify-content: space-between; color: #5f5144; font-size: 11px; }
+.game-assessment dd { margin: 3px 0 0; color: #8a7c6b; font-size: 10px; }
+.game-assessment small { display: block; margin-top: 3px; line-height: 1.4; }
+.game-wine-detail .game-target-explanation { margin-top: 3px; }
+.game-wine-detail .game-target-explanation summary { padding: 2px 0; font-size: 10px; font-weight: 400; }
+.game-note { margin: 10px 0; padding: 10px; border-left: 3px solid #b69a72; background: #f8f2e7; font-size: 11px; }
+.game-note strong { color: #5d4b3b; }
+.game-note strong:not(:first-child) { display: block; margin-top: 7px; }
+.game-wine-detail details, .game-stack > details { margin-top: 10px; }
+.game-wine-detail summary, .game-stack > details > summary { padding: 10px 0; color: #694d39; font-size: 12px; font-weight: 700; cursor: pointer; }
+.game-detail-content { padding: 0 0 10px; }
+.game-history { margin: 8px 0 0; padding-left: 18px; color: #75695b; font-size: 11px; line-height: 1.6; }
+.game-action-grid > .game-form { padding: 12px; border: 1px solid #e8dece; border-radius: 5px; background: #fffdf8; }
+.game-subcard { min-width: 0; padding: 12px; border: 1px solid #eee4d7; border-radius: 5px; background: #fffdf8; font-size: 12px; }
+.game-management-content { padding-top: 16px; }
+.game-management-content > .game-stack > section > h3 { margin-bottom: 10px; }
+.game-table-wrap { overflow-x: auto; }
+.game-table-wrap table { width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; }
+.game-table-wrap th, .game-table-wrap td { padding: 8px; border-bottom: 1px solid #eee5d8; }
+.game-table-wrap th { color: #847566; }
+@media (max-width: 900px) { .game-layout, .game-cellar-layout { grid-template-columns: 1fr; } .game-lot-list { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); } }
+@media (max-width: 560px) { .game-grid, .game-action-grid, .game-assessment-grid, .game-form-grid { grid-template-columns: 1fr; } .game-card, .game-banner { padding: 13px; } .game-banner-scene { align-items: flex-start; } .game-banner-scene .game-context-scene { flex-basis: 32%; } }

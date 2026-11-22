@@ -1,46 +1,68 @@
 # Project Information
 
-Record verified repository facts here. Check the current files before relying on this snapshot, and update it when the application, toolchain, commands, or ownership changes.
+Record verified repository facts here. Check current files before relying on this snapshot, and update it when the application, toolchain, commands, or ownership changes.
 
 ## Current status
 
-The React/Pixi prototype connects to a PostgreSQL-backed authority for player profile creation/selection, company creation/loading and calendar advancement. Named player profiles are database records and their IDs scope companies; profile listing and selection do not require a Supabase Auth session. Companies created without a user are shared as unassigned companies across browsers. Neither selectable profiles nor unassigned companies have a password or private authentication boundary. The configured Supabase session pooler was checked read-only with certificate verification: the expected tables and columns were readable, the tables had RLS enabled, and `anon`/`authenticated` lacked schema usage and direct SELECT on profiles and saves. A complete remote role audit and a full remote browser/write flow were not performed. A full player/company/calendar browser flow was verified against an isolated local PostgreSQL database. The schema script drops and recreates existing 05 development data and was not run against the remote project in this review. Wine, vineyard, work, finance, market and other gameplay systems remain unimplemented. Deployment has not been verified.
+The current application implements a connected, server-authoritative core game spanning vineyard establishment and harvest, physical wine processing and maturation, cellar assessments, and sales/contracts. React screens render current company queries and submit strict domain commands. See the active [core-game transition plan](../../plans/2026-11-21-core-game-transition.md) for exact core-loop, isolated PostgreSQL, and real-browser production-to-sale gate results. The complete vineyard-to-sale and contract flow passed against isolated local PostgreSQL, together with the profile, reload, retry and recovery browser checks. Exact results are recorded in the plan. Remote Supabase installation remains a manual step under the user's access restriction.
 
-The 04 reference used for this transition is [gram12321/winemaker04 at f3f4dade](https://github.com/gram12321/winemaker04/tree/f3f4dadeac2663b4744ca107a87cd1f1ad1122ac). Its technologies and module paths describe 04 only.
+Named player profiles remain database records without a password or private authentication boundary. Their IDs scope companies; unassigned companies are shared across browsers. Profile listing and selection do not use Supabase Auth. The configured Supabase pooler was previously checked read-only with certificate verification; the earlier check found the expected tables/columns readable, RLS enabled, and no schema usage or direct SELECT on profiles and saves for `anon`/`authenticated`. That was not a complete role audit or a remote browser/write flow. No remote Supabase schema or data was changed and no new remote verification was performed for this core-loop work. Deployment remains unverified.
+
+Winemaker05 uses the current save shape directly. There is no old-save compatibility path or migration. [schema.sql](../../src/server/postgres/schema.sql) drops and recreates the private Winemaker05 schema, including development data; apply it only where that data may be discarded.
+
+The Winemaker04 reference is [gram12321/winemaker04 at f3f4dade](https://github.com/gram12321/winemaker04/tree/f3f4dadeac2663b4744ca107a87cd1f1ad1122ac). Its technologies, data, module paths, and behaviors describe 04 only.
 
 ## Repository map
 
 | Area | Purpose |
 |---|---|
-| [src/game](../../src/game/) | Deterministic company state, calendar validation, commands and synchronous transitions. No browser or database access. |
-| [src/authority](../../src/authority/) | Trusted-side company session, save-port contract, revision/receipt handling and outcome recovery. |
-| [src/server](../../src/server/) | HTTP host, company-session lifecycle, player-profile store contract and owner-scoped PostgreSQL adapters; the SQL schema is installed explicitly. |
-| [src/client](../../src/client/) | Browser connection orchestration, player-selection views, local last-selection persistence, company API and uncertain-request recovery. |
-| [src/shared](../../src/shared/) | Player/company scope, identifier and name contracts shared across client and authority. |
-| [src/components](../../src/components/) | React navigation, panels and transient prototype state. |
-| [src/scene](../../src/scene/) | PixiJS scene drawing, pointer intents and renderer lifecycle. |
-| [tests](../../tests/) | Focused simulation, session, API, PostgreSQL and UI tests; the database suite is opt-in. |
-| [WorkingDocs](.) | Design context, implemented behavior, terminology, and documentation workflow. |
+| [src/game/core](../../src/game/core/) | Company state, exact current-state validation, strict command contracts, pure command routing, and JSON snapshots. |
+| [src/game/vineyard](../../src/game/vineyard/) | Grape/site catalogs, crop and weather rules, harvest, and origin projections. |
+| [src/game/wine](../../src/game/wine/) | Physical lots, harvest anchors, operations, daily development, maturation, and risk diagnosis. |
+| [src/game/evaluation](../../src/game/evaluation/) | Derived sensory/taste profiles, contextual target ranges, fit scoring, and quality/fault composition. |
+| [src/game/inventory](../../src/game/inventory/) | Integer quantities, locations, vessel allocation, reservations, and material consumption. |
+| [src/game/equipment](../../src/game/equipment/) | Vessel capacity/material/condition and current wine-environment resolution. |
+| [src/game/work](../../src/game/work/) | Starter staff and partial harvest-work allocation. |
+| [src/game/finance](../../src/game/finance/) | Cash postings, wage arrears, and basic processing costs. |
+| [src/game/commercial](../../src/game/commercial/) | NPC buyer profiles, provisional quotes, contract offers/eligibility/deadlines, customer relationships, and sale history rules. |
+| [src/game/commands](../../src/game/commands/) | Composes domain-owned rules into candidate company transitions for estate, equipment, wine, and commercial commands. |
+| [src/game/simulation](../../src/game/simulation/) | Weekly company transition and daily development of stored lots. |
+| [src/game/queries](../../src/game/queries/) | Company/cellar read model, forecasts, quotes, and non-mutating action previews. |
+| [src/authority](../../src/authority/) | Trusted-side company session, save-port contract, revision/receipt handling, and outcome recovery. |
+| [src/server](../../src/server/) | HTTP host, company-session lifecycle, profile store contract, PostgreSQL adapters, and explicit schema. |
+| [src/client](../../src/client/) | Browser connection orchestration, selectable profiles, local selection/intent persistence, company commands, and recovery. |
+| [src/shared](../../src/shared/) | Player/company scope, identifier, and name contracts shared by client and authority. |
+| [src/components/game](../../src/components/game/) | React gameplay panels and forms for estate, winery, cellar, company, and management. |
+| [src/components](../../src/components/) and [src/scene](../../src/scene/) | Application navigation/panels, PixiJS scene rendering, pointer intents, and renderer lifecycle. |
+| [tests](../../tests/) | Focused domain, UI, authority/API, PostgreSQL, and browser test sources; database suites are opt-in. |
+| [WorkingDocs](.) | Approved design, current behavior, terminology, relationships, tooling, and documentation workflow. |
 | [skills](../../skills/) | Local task routers and conditional technology guidance. |
 | [versionlog.md](../versionlog.md) | Release-history instructions and future 05 entries. |
 
 ## Stack, commands, and ownership
 
-The checked-in [package.json](../../package.json) and lockfile pin TypeScript 7, Vite 8, React 19, PixiJS 8, Vitest 5, Playwright and PostgreSQL's Node client. Node 22.13 and npm 11 were used locally. The Node engine range is recorded in the package manifest.
+The checked-in [package.json](../../package.json) and lockfile pin TypeScript 7, Vite 8, React 19, PixiJS 8, Vitest 5, Playwright, and PostgreSQL's Node client. Node 22.13 and npm 11 were used locally. The supported Node engine range is recorded in the package manifest. The core-game work added test files but did not add or change npm scripts.
 
 | Command | Purpose |
 |---|---|
-| `npm install` | Install the pinned dependency graph; use `npm ci` for a clean lockfile-based installation. |
-| `npm run dev` | Start the Vite UI prototype on localhost. |
-| `npm run typecheck` | Type-check source, configuration and tests. |
+| `npm install` | Install dependencies; use `npm ci` for a clean lockfile-based installation. |
+| `npm run dev` | Start the Vite UI and its local `/api` proxy. |
+| `npm run authority` | Start the candidate TypeScript authority. |
+| `npm run typecheck` | Type-check source, configuration, and tests. |
 | `npm test` | Run Vitest; PostgreSQL integration tests are skipped unless their test URL is supplied. |
-| `npm run test:e2e` | Run the desktop Chromium prototype flow; requires a Playwright Chromium installation. |
+| `npm run test:e2e` | Run Playwright flows; the local-PostgreSQL flow requires the environment described below. |
 | `npm run build` | Type-check and build the Vite UI. |
-| `npm run authority` | Start the candidate TypeScript authority with its required environment variables. |
 
-The authority loads `.env.local` and requires a server-only PostgreSQL URL (`POSTGRES_POOLER_URL` preferred, with `DATABASE_URL` as fallback), plus optional trusted calendar overrides: `WINEMAKER_WEEKS_PER_SEASON`, `WINEMAKER_SEASONS_PER_YEAR`, `WINEMAKER_START_YEAR`, `WINEMAKER_START_SEASON` and `WINEMAKER_START_WEEK`. New companies default to 12 weeks per season, 4 seasons per year, year 1, season 1, week 1. The authority encrypts database traffic and verifies the server certificate. Configure `POSTGRES_SSL_ROOT_CERT` with the Supabase root CA file path when the system trust store cannot verify the pooler certificate. SSL parameters in the database URL are rejected; use the CA setting instead. It defaults to `127.0.0.1:3002` and supports `WINEMAKER_HOST` and `WINEMAKER_PORT`. [schema.sql](../../src/server/postgres/schema.sql) defines the current private 05 schema and is **not** installed automatically on startup. It drops and recreates `winemaker05_private`, including player profiles, saves, receipts, pending attempts and fences; apply it only when existing development data may be discarded. Only trusted server code may hold database credentials or write its tables. Exposing a service, TLS, deployment and production hardening remain separate work.
+The authority loads `.env.local` and requires a server-only PostgreSQL URL (`POSTGRES_POOLER_URL` preferred, with `DATABASE_URL` as fallback), plus optional trusted calendar overrides: `WINEMAKER_WEEKS_PER_SEASON`, `WINEMAKER_SEASONS_PER_YEAR`, `WINEMAKER_START_YEAR`, `WINEMAKER_START_SEASON`, and `WINEMAKER_START_WEEK`. New companies default to 12 weeks per season, 4 seasons per year, year 1, season 1, week 1. The authority encrypts database traffic and verifies the server certificate. Set `POSTGRES_SSL_ROOT_CERT` to the Supabase root CA path when the system trust store cannot verify the pooler certificate. SSL parameters in the database URL are rejected; use the CA setting instead. The authority defaults to `127.0.0.1:3002` and supports `WINEMAKER_HOST` and `WINEMAKER_PORT`. Vite proxies `/api` to that origin by default; set `WINEMAKER_AUTHORITY_ORIGIN` when using another local authority.
 
-For PostgreSQL integration checks, the adapter suite currently requires `WINEMAKER_POSTGRES_TEST_DATABASE_URL=postgresql://winemaker_test@127.0.0.1:55439/winemaker05_durable_test` and runs with `npx vitest run tests/postgres`. For the separate HTTP-to-PostgreSQL suite, set `WINEMAKER_HTTP_POSTGRES_TEST_DATABASE_URL` to a second disposable local test database and run `npx vitest run tests/integration`. The opt-in [full browser test](../../tests/e2e/local-postgres.pw.ts) requires `WINEMAKER_E2E_POSTGRES_TEST_DATABASE_URL=postgresql://winemaker_test@127.0.0.1:55439/winemaker05_browser_test` and `WINEMAKER_AUTHORITY_ORIGIN=http://127.0.0.1:55440`. These suites restrict accepted hosts and test database names, create their private schema when absent, and clean up their own uniquely identified records; do not point them at existing application data. They do not validate a deployed Supabase project's role grants or operational configuration. See [testing and tools](testing-and-tools.md).
+[schema.sql](../../src/server/postgres/schema.sql) is not installed automatically. It drops and recreates `winemaker05_private`, including player profiles, saves, receipts, pending attempts, and fences. Only trusted server code may hold database credentials or write these tables. Keep `POSTGRES_POOLER_URL`/`DATABASE_URL` server-only with no `VITE_` prefix. Run `npm run authority` and `npm run dev` in separate terminals. Browser command recovery and last-profile selection use local storage and Web Locks. Deployment must provide equivalent same-origin API routing, TLS, and operational safeguards.
 
+## Isolated PostgreSQL checks
 
-For local development, put the PostgreSQL URL in `POSTGRES_POOLER_URL` or `DATABASE_URL`; keep it server-only with no `VITE_` prefix. Calendar variables may be omitted to use the selected 12-week, four-season year-1 starting calendar. Run `npm run authority` and `npm run dev` in separate terminals. Vite proxies `/api` to `127.0.0.1:3002` by default; set `WINEMAKER_AUTHORITY_ORIGIN` when starting Vite to use another local authority. The browser needs available local storage and Web Locks for command recovery and last-player selection. Deployment must provide equivalent same-origin routing. Before release, use the current schema directly; no compatibility layer or migration is maintained.
+The PostgreSQL adapter suite is opt-in and currently uses `WINEMAKER_POSTGRES_TEST_DATABASE_URL=postgresql://winemaker_test@127.0.0.1:55439/winemaker05_durable_test`, with `npx vitest run tests/postgres`. The separate HTTP-to-PostgreSQL suite uses `WINEMAKER_HTTP_POSTGRES_TEST_DATABASE_URL` for a second disposable local test database and `npx vitest run tests/integration`.
+
+The real-browser local PostgreSQL flow is [local-postgres.pw.ts](../../tests/e2e/local-postgres.pw.ts). It requires `WINEMAKER_E2E_POSTGRES_TEST_DATABASE_URL=postgresql://winemaker_test@127.0.0.1:55439/winemaker05_browser_test` and `WINEMAKER_AUTHORITY_ORIGIN=http://127.0.0.1:55440`, then runs with `npx playwright test tests/e2e/local-postgres.pw.ts`. These suites restrict accepted hosts/database names, create their private schema when absent, and clean up their own uniquely identified records; never point them at existing application data. They do not validate a deployed Supabase project's grants or operational configuration. See [testing and tools](testing-and-tools.md).
+
+## Manual Supabase setup
+
+Use [Supabase core-game setup](Supabase_Core_Game_Setup.md) for the reset SQL, read-only setup verifier, server-only pooler and CA configuration, and manual smoke flow. The user explicitly reserved Supabase access and SQL application for manual work on 22 November; the agent prepared configuration and verified only disposable local PostgreSQL. No remote installation or connectivity result is claimed.

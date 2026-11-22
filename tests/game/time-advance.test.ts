@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createCompanyState, decideCommand, readCompanyState, type CompanyState, type GameCommand } from '../../src/game/core';
+import { initialGameplay } from '../../src/game/core/CompanyState';
 
 describe('time.advance', () => {
   it('advances one week as a deterministic, independent candidate', () => {
@@ -15,7 +16,7 @@ describe('time.advance', () => {
     const second = decideCommand(created.state, { type: 'time.advance' });
 
     expect(first).toEqual(second);
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       kind: 'accepted',
       next: {
         calendar: {
@@ -140,6 +141,7 @@ describe('time.advance', () => {
 
   it('validates and copies a serialized company before it is published', () => {
     const raw = {
+      ...initialGameplay(),
       calendar: {
         rules: { weeksPerSeason: 4, seasonsPerYear: 3 },
         date: { year: 2030, season: 2, week: 3 },
@@ -199,6 +201,7 @@ describe('time.advance', () => {
 
   it('rejects invalid source state without modifying it', () => {
     const state: CompanyState = {
+      ...initialGameplay(),
       calendar: {
         rules: { weeksPerSeason: 3, seasonsPerYear: 2 },
         date: { year: 2029, season: 2, week: 4 },

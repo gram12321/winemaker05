@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import type { CompanyStore, DispatchResult, LoadResult, ResolutionResult, SwitchResult } from '../../authority';
-import { createCompanyState, type GameCommand, type NewCompanyInput } from '../../game/core';
+import { createCompanyState, readGameCommand as readCommand, type GameCommand, type NewCompanyInput } from '../../game/core';
 import { companyOwnerId, type CompanyScope } from '../../shared/companyScope';
 import { isGameId, isPlayerId } from '../../shared/identifiers';
 import { isValidName } from '../../shared/names';
@@ -36,11 +36,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
-}
-
-function readCommand(value: unknown): GameCommand | null {
-  if (!isRecord(value) || !exactKeys(value, ['type']) || value.type !== 'time.advance') return null;
-  return { type: 'time.advance' };
 }
 
 type ParsedBody = { readonly kind: 'parsed'; readonly value: unknown } | { readonly kind: 'invalid' | 'too-large' };

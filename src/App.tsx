@@ -4,15 +4,20 @@ import { managementSections, navigation, scenes, type Destination, type Manageme
 import { Management } from "./components/Management";
 import { SceneWorkspace } from "./components/SceneWorkspace";
 import { WineDialog } from "./components/WineDialog";
+import { GameWorkspace } from "./components/game/GameWorkspace";
+import { ActivityList } from "./components/game/common";
+import { companyView } from "./game/queries/CompanyView";
 
 interface AppProps {
+  company?: import('./game/core').CompanyState;
+  onCommand?: (command: import('./game/core').GameCommand) => void;
   calendar?: import('./game/calendar/Calendar').CalendarState;
   busy?: boolean;
   canAdvance?: boolean;
   onAdvance?: () => void;
 }
 
-export default function App({ calendar, busy = false, canAdvance = false, onAdvance }: AppProps) {
+export default function App({ company, onCommand, calendar, busy = false, canAdvance = false, onAdvance }: AppProps) {
   const [destination, setDestination] = useState<Destination>("estate");
   const [managementSection, setManagementSection] = useState<ManagementSection>("finance");
   const [selected, setSelected] = useState<SceneObjectId | null>(null);
@@ -21,6 +26,9 @@ export default function App({ calendar, busy = false, canAdvance = false, onAdva
   const activityToggleRef = useRef<HTMLButtonElement>(null);
   const currentScene = destination === "management" ? null : scenes[destination];
   const currentManagement = managementSections.find((item) => item.id === managementSection);
+  const view = company ? companyView(company) : null;
+  const gameDisabled = busy || !canAdvance || !onCommand;
+  const command = onCommand ?? (() => {});
 
   function navigate(next: Destination) {
     setDestination(next);
@@ -89,7 +97,9 @@ export default function App({ calendar, busy = false, canAdvance = false, onAdva
             <div className="heading-ornament" aria-hidden="true"><span />✦<span /></div>
           </div>
 
-          {destination === "management" ? (
+          {company && view ? (
+            <GameWorkspace company={company} view={view} disabled={gameDisabled} onCommand={command} destination={destination} managementSection={managementSection} onManagementSectionChange={setManagementSection} />
+          ) : destination === "management" ? (
             <Management section={managementSection} onSectionChange={setManagementSection} />
           ) : (
             <SceneWorkspace scene={destination} selected={selected} onSelect={setSelected} onCloseDetail={() => setSelected(null)} onOpenWine={() => setWineOpen(true)} />
@@ -100,10 +110,10 @@ export default function App({ calendar, busy = false, canAdvance = false, onAdva
       {activityOpen && (
         <aside id="activity-manager" className="activity-panel" aria-label="Activity manager">
           <div className="activity-panel-heading"><span className="activity-panel-icon"><Icon name="activity" /></span><div><span className="eyebrow">YOUR WINERY</span><h2>Activity manager</h2></div><button className="icon-button" type="button" onClick={closeActivity} aria-label="Close activity manager"><Icon name="close" /></button></div>
-          <div className="activity-empty"><span className="activity-empty-icon"><Icon name="activity" /></span><h3>Work, all in one place.</h3><p>Activities across your estate and winery will appear here.</p></div>
+          {view ? <div className="game-activity-panel"><ActivityList view={view} disabled={gameDisabled} onCommand={command} /></div> : <div className="activity-empty"><span className="activity-empty-icon"><Icon name="activity" /></span><h3>Work, all in one place.</h3><p>Activities across your estate and winery will appear here.</p></div>}
         </aside>
       )}
-      <WineDialog open={wineOpen} onClose={() => setWineOpen(false)} />
+      {!company && <WineDialog open={wineOpen} onClose={() => setWineOpen(false)} />}
     </div>
   );
 }
