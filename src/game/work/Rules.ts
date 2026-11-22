@@ -1,7 +1,7 @@
 import type { HarvestActivity, WorkState } from './types';
 import type { Vineyard, Weather } from '../vineyard/types';
 import { clamp } from '../core/Numbers';
-import { MINIMUM_HARVEST_RIPENESS } from '../vineyard/Rules';
+import { MINIMUM_HARVEST_RIPENESS, standingCropKg } from '../vineyard/Rules';
 
 export interface HarvestWorkOutput { readonly vineyardId: string; readonly kilograms: number; readonly activityId: string }
 export interface HarvestWorkResult { readonly work: WorkState; readonly outputs: readonly HarvestWorkOutput[] }
@@ -17,31 +17,32 @@ interface StaffContribution {
 }
 
 /** Shared by previews and execution. Productive tasks share staff time; stable priority allocates contested resources. */
-export function progressHarvestWork(work: WorkState, vineyards: readonly Vineyard[], weather: Weather, freeStorageKg: number, harvestableKgById: ReadonlyMap<string, number>, wagesOverdue: boolean): HarvestWorkResult {
+export function progressHarvestWork(work: WorkState, vineyards: readonly Vineyard[], weather: Weather, freeStorageKg: number, wagesOverdue: boolean): HarvestWorkResult {
   const ordered = [...work.activities].sort((a, b) => a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const vineyardsById = new Map(vineyards.map(vineyard => [vineyard.id, vineyard]));
   const remainingStaffCapacity = new Map(work.staff.map(worker => [worker.id, Math.max(0, worker.kgPerWeek)]));
-  const harvestedByActivity = new Map<string, number>();
-  const harvestedByVineyard = new Map<string, number>();
+  const harvestedGramsByActivity = new Map<string, number>();
+  const harvestedGramsByVineyard = new Map<string, number>();
   const appliedXp = new Map<string, number>();
-  let storageRemaining = Math.max(0, freeStorageKg);
+  let storageRemainingGrams = Math.max(0, Math.floor(freeStorageKg * HARVEST_KG_PRECISION + HARVEST_KG_EPSILON));
   const weatherFactor = clamp(1 - weather.rainMm / 100, 0.15, 1);
 
   const activityState = (activity: HarvestActivity) => {
     const vineyard = vineyardsById.get(activity.vineyardId);
-    const harvestedHere = harvestedByVineyard.get(activity.vineyardId) ?? 0;
-    const remainingCropKg = vineyard ? vineyard.cropKg - vineyard.harvestedKg - harvestedHere : 0;
-    const harvestableNowKg = vineyard ? (harvestableKgById.get(vineyard.id) ?? 0) - harvestedHere : 0;
-    const targetRemainingKg = activity.targetKg - activity.completedKg - (harvestedByActivity.get(activity.id) ?? 0);
+    const harvestedHere = harvestedGramsByVineyard.get(activity.vineyardId) ?? 0;
+    const remainingCropGrams = vineyard ? Math.round(standingCropKg(vineyard) * HARVEST_KG_PRECISION) - harvestedHere : 0;
+    const harvestableNowGrams = vineyard ? Math.round(vineyard.ripeKg * HARVEST_KG_PRECISION) - harvestedHere : 0;
+    const targetRemainingGrams = Math.round(activity.targetKg * HARVEST_KG_PRECISION)
+      - Math.round(activity.completedKg * HARVEST_KG_PRECISION) - (harvestedGramsByActivity.get(activity.id) ?? 0);
     const blockedReason = !vineyard ? 'The vineyard is unavailable.'
       : wagesOverdue ? 'Harvest pauses for unpaid wages. Available cash pays arrears at the next week end.'
         : vineyard.ripeness < MINIMUM_HARVEST_RIPENESS ? 'The crop is not ready to harvest.'
           : weather.rainMm >= HARVEST_RAIN_STOP_MM ? 'Heavy rain has stopped harvest work.'
-            : storageRemaining < MIN_HARVEST_WORK_KG ? 'Harvest storage is full. Press stored grapes to free space.'
-              : remainingCropKg < MIN_HARVEST_WORK_KG ? 'No crop remains for this activity.'
-                : harvestableNowKg < MIN_HARVEST_WORK_KG ? 'More grapes need to ripen before harvest can continue.'
+            : storageRemainingGrams < 1 ? 'Harvest storage is full. Press stored grapes to free space.'
+              : remainingCropGrams < 1 ? 'No crop remains for this activity.'
+                : harvestableNowGrams < 1 ? 'More grapes need to ripen before harvest can continue.'
                   : null;
-    const availableKg = Math.max(0, Math.min(targetRemainingKg, remainingCropKg, harvestableNowKg, storageRemaining));
+    const availableKg = Math.max(0, Math.min(targetRemainingGrams, remainingCropGrams, harvestableNowGrams, storageRemainingGrams)) / HARVEST_KG_PRECISION;
     const conditionFactor = vineyard ? 0.5 + vineyard.condition * 0.5 : 0;
     return { vineyard, availableKg, blockedReason, productivityFactor: weatherFactor * conditionFactor };
   };
@@ -97,9 +98,10 @@ export function progressHarvestWork(work: WorkState, vineyards: readonly Vineyar
         appliedXp.set(contribution.workerId, (appliedXp.get(contribution.workerId) ?? 0) + kilograms * share);
       }
 
-      harvestedByActivity.set(activity.id, (harvestedByActivity.get(activity.id) ?? 0) + kilograms);
-      harvestedByVineyard.set(activity.vineyardId, (harvestedByVineyard.get(activity.vineyardId) ?? 0) + kilograms);
-      storageRemaining = Math.max(0, storageRemaining - kilograms);
+      const producedGrams = Math.round(kilograms * HARVEST_KG_PRECISION);
+      harvestedGramsByActivity.set(activity.id, (harvestedGramsByActivity.get(activity.id) ?? 0) + producedGrams);
+      harvestedGramsByVineyard.set(activity.vineyardId, (harvestedGramsByVineyard.get(activity.vineyardId) ?? 0) + producedGrams);
+      storageRemainingGrams -= producedGrams;
       madeProgress = true;
     }
     if (!madeProgress) break;
@@ -108,19 +110,18 @@ export function progressHarvestWork(work: WorkState, vineyards: readonly Vineyar
   const activities: HarvestActivity[] = [];
   for (const activity of ordered) {
     const vineyard = vineyardsById.get(activity.vineyardId);
-    const activityHarvestedKg = harvestedByActivity.get(activity.id) ?? 0;
-    const completedKg = Math.round((activity.completedKg + activityHarvestedKg) * HARVEST_KG_PRECISION) / HARVEST_KG_PRECISION;
-    const remainingCropKg = vineyard
-      ? vineyard.cropKg - vineyard.harvestedKg - (harvestedByVineyard.get(vineyard.id) ?? 0)
+    const completedGrams = Math.round(activity.completedKg * HARVEST_KG_PRECISION) + (harvestedGramsByActivity.get(activity.id) ?? 0);
+    const remainingCropGrams = vineyard
+      ? Math.round(standingCropKg(vineyard) * HARVEST_KG_PRECISION) - (harvestedGramsByVineyard.get(vineyard.id) ?? 0)
       : 0;
-    if (completedKg + HARVEST_KG_EPSILON < activity.targetKg && remainingCropKg > HARVEST_KG_EPSILON) {
-      activities.push({ ...activity, completedKg, blockedReason: activityState(activity).blockedReason });
+    if (completedGrams < Math.round(activity.targetKg * HARVEST_KG_PRECISION) && remainingCropGrams > 0) {
+      activities.push({ ...activity, completedKg: completedGrams / HARVEST_KG_PRECISION, blockedReason: activityState(activity).blockedReason });
     }
   }
 
   const outputs = ordered.flatMap(activity => {
-    const kilograms = harvestedByActivity.get(activity.id) ?? 0;
-    return kilograms > 0 ? [{ vineyardId: activity.vineyardId, kilograms, activityId: activity.id }] : [];
+    const producedGrams = harvestedGramsByActivity.get(activity.id) ?? 0;
+    return producedGrams > 0 ? [{ vineyardId: activity.vineyardId, kilograms: producedGrams / HARVEST_KG_PRECISION, activityId: activity.id }] : [];
   });
   return {
     work: { staff: work.staff.map(worker => ({ ...worker, experience: worker.experience + (appliedXp.get(worker.id) ?? 0) })), activities },

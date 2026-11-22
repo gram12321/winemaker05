@@ -5,8 +5,9 @@ import type { StructureProfile } from './types';
 
 /** Provisional projection mappings, expressed independently of assessment targets. */
 export const SENSORY_BALANCE = {
-  sweetnessFullGPerL: 80,
-  sweetnessHarvestFraction: 0.5,
+  // A dry bottle at the 4 g/L limit should remain visible in the sweetness axis.
+  sweetnessFullGPerL: 32,
+  sweetnessHarvestFraction: 0.1,
   aciditySweetnessMask: 0.2,
   alcoholFullPct: 16,
   bodyAlcoholWeight: 0.55,

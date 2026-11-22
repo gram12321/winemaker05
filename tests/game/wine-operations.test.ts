@@ -31,6 +31,8 @@ function vineyard(overrides: Partial<Vineyard> = {}): Vineyard {
     condition: 0.91,
     cropKg: 7_000,
     harvestedKg: 0,
+    lostKg: 0,
+    ripeKg: 4_000,
     rot: 0.08,
     nobleRot: 0.04,
     ...overrides,
@@ -174,12 +176,13 @@ describe('wine physical operations', () => {
   });
 
   it('splits a lot into a distinct copy with independent state and preserved source lineage', () => {
-    const source = wineLot(harvestLot());
+    const source = wineLot(harvestLot(), { developmentAgeDays: 18 });
     const child = splitLot(source, 'lot-pinot-split', 5);
 
     expect(child.id).toBe('lot-pinot-split');
     expect(child.parentIds).toEqual([source.id]);
     expect(child.physical).toEqual(source.physical);
+    expect(child.physical.developmentAgeDays).toBe(18);
     expect(child.anchors).toEqual(source.anchors);
     expect(child.sources).toEqual(source.sources);
     expect(child.physical).not.toBe(source.physical);
@@ -206,6 +209,7 @@ describe('wine physical operations', () => {
       greenCharacter: 0.1,
       rot: 0.02,
       ageDays: 20,
+      developmentAgeDays: 20,
     });
     const second = wineLot(harvestLot('lot-tempranillo', 'tempranillo', 'riverbend'), {
       sugarGPerL: 7,
@@ -213,7 +217,7 @@ describe('wine physical operations', () => {
       acidity: 0.8,
       phenolics: 0.4,
       remainingPhenolics: 0.25,
-      aroma: 0.9,
+      aroma: 0.5,
       yeastActivity: 0.8,
       oxygenExposure: 0.9,
       oxidation: 0.6,
@@ -223,6 +227,7 @@ describe('wine physical operations', () => {
       greenCharacter: 0.7,
       rot: 0.3,
       ageDays: 60,
+      developmentAgeDays: 60,
     });
     const result = blendLots([
       { lot: first, quantity: 200 },
@@ -234,6 +239,7 @@ describe('wine physical operations', () => {
     expect(result.value.physical.alcoholPct).toBeCloseTo(12.6);
     expect(result.value.physical.acidity).toBeCloseTo(0.68);
     expect(result.value.physical.ageDays).toBe(52);
+    expect(result.value.physical.developmentAgeDays).toBe(52);
     expect(result.value.anchors.acidity).toBeCloseTo(first.anchors.acidity * 0.2 + second.anchors.acidity * 0.8);
     expect(result.value.origin.vineyardId).toBe(second.origin.vineyardId);
     expect(result.value.parentIds).toEqual([first.id, second.id]);
@@ -287,6 +293,7 @@ describe('wine physical operations', () => {
       oxidation: 0.13,
       maturation: 1.25,
       ageDays: 80,
+      developmentAgeDays: 60,
     });
     const assessment = { week: 5, structure: 0.72, taste: 0.83, quality: 0.78 };
     expect(canBottle(dry)).toEqual({ ready: true, reasons: [] });
@@ -296,6 +303,7 @@ describe('wine physical operations', () => {
     if (!bottled.ok) throw new Error(bottled.reason);
     expect(bottled.value.form).toBe('bottled');
     expect(bottled.value.physical).toEqual(dry.physical);
+    expect(bottled.value.physical.developmentAgeDays).toBe(60);
     expect(bottled.value.anchors).toEqual(anchors);
     expect(bottled.value.bottling).toEqual(assessment);
     expect(bottled.value.bottling).not.toBe(assessment);

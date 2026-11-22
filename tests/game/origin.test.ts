@@ -11,6 +11,16 @@ function makeVineyard(siteId: SiteId = 'hillside', grapeId: GrapeId = 'pinot-noi
 }
 
 describe('vineyard origin rules', () => {
+  it('preserves negative safe years from vineyard establishment through origin projection', () => {
+    const result = createVineyard({ id: 'old-block', name: 'Old Block', siteId: 'heritage', grapeId: 'pinot-noir', areaHa: 1, year: -44 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+
+    expect(result.value.vineyard.plantedYear).toBe(-44);
+    expect(createWineOrigin(result.value.vineyard).vintage).toBe(-44);
+    expect(() => createWineOrigin({ ...result.value.vineyard, cropYear: Number.MIN_SAFE_INTEGER - 1 })).toThrow(RangeError);
+  });
+
   it('keeps agricultural potential independent from commercial site price and prestige', () => {
     const site = SITES.hillside;
     const grape = GRAPES['pinot-noir'];

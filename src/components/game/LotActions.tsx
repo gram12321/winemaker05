@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { blendDestinations, pressDestinations, previewCommand, splitDestinations, transferDestinations, type ActionPreview } from '../../game/queries/ActionPreviews';
+import { blendDestinations, pressDestinations, previewCommand, splitDestinations, transferDestinations, type ActionPreview, type PressActionPreview } from '../../game/queries/ActionPreviews';
 import { saleQuote } from '../../game/queries/CompanyView';
 import type { CellarLotView } from '../../game/queries/CompanyView';
 import type { BuyerId } from '../../game/commercial/types';
 import type { Vessel } from '../../game/equipment/types';
 import { buyerName, decimal, money, quantity, type GameProps } from './common';
 
-type Destination = { vessel: Vessel | null; preview: ActionPreview };
+type Destination<Preview extends ActionPreview = ActionPreview> = { vessel: Vessel | null; preview: Preview };
 
-function chooseDestination(destinations: readonly Destination[], selected: string): Destination | undefined {
+function chooseDestination<Preview extends ActionPreview>(destinations: readonly Destination<Preview>[], selected: string): Destination<Preview> | undefined {
   return destinations.find(item => item.vessel?.id === selected && item.preview.allowed) ?? destinations.find(item => item.preview.allowed);
 }
 
@@ -34,12 +34,14 @@ export function PressForm({ row, company, disabled, onCommand }: { row: CellarLo
   const [skinContact, setSkinContact] = useState(false);
   const [vesselId, setVesselId] = useState('');
   const destinations = pressDestinations(company, row.lot.id, intensity, destem, skinContact);
-  const chosen = chooseDestination(destinations, vesselId);
+  const chosen = chooseDestination<PressActionPreview>(destinations, vesselId);
+  const outcome = chosen?.preview.allowed ? chosen.preview.outcome : null;
   return <form className="game-form" onSubmit={event => { event.preventDefault(); if (chosen?.vessel) onCommand({ type: 'wine.press', lotId: row.lot.id, vesselId: chosen.vessel.id, intensity, destem, skinContact }); }}>
     <h4>Press grapes</h4><p>Press all {quantity(row.holding.quantity, row.holding.unit)}. Split the lot first to press a portion.{row.pressingCostCents !== null && ` Processing cost: ${money(row.pressingCostCents)}.`}</p>
     <label>Press intensity ({decimal(intensity * 100, 0)}%)<input type="range" min="0" max="1" step="0.05" value={intensity} onChange={event => setIntensity(Number(event.target.value))} /></label>
     <div className="game-checks"><label><input type="checkbox" checked={destem} onChange={event => setDestem(event.target.checked)} />Destem</label><label><input type="checkbox" checked={skinContact} onChange={event => setSkinContact(event.target.checked)} />Skin contact</label></div>
     <DestinationSelect label="Press into" destinations={destinations} chosen={chosen} onChange={setVesselId} /><NoDestinationReasons destinations={destinations} chosen={chosen} />
+    {outcome && <p aria-label="Press outcome preview">Press preview: expected yield {quantity(outcome.juiceMl, 'ml')} juice · {decimal(outcome.extractedPhenolics, 3)} phenolics extracted · +{decimal(outcome.greenCharacterAdded, 3)} green character · +{decimal(outcome.oxygenExposureAdded, 3)} oxygen exposure</p>}
     <button disabled={disabled || !chosen}>Press grapes</button>
   </form>;
 }
@@ -54,7 +56,7 @@ export function FermentationForm({ row, company, disabled, onCommand }: { row: C
     <h4>Fermentation &amp; contact</h4><p>Sugar {decimal(row.lot.physical.sugarGPerL)} g/L · Alcohol {decimal(row.lot.physical.alcoholPct)}% · Yeast {decimal(row.lot.physical.yeastActivity * 100, 0)}/100</p>
     <label>Fermentation temperature (°C)<input type="number" min="2" max="40" step="0.5" value={temperatureC} onChange={event => setTemperature(Number(event.target.value))} /></label>
     <div className="game-checks"><label><input type="checkbox" checked={skinContact} onChange={event => setSkinContact(event.target.checked)} />Skin contact</label><label><input type="checkbox" checked={leesContact} onChange={event => setLeesContact(event.target.checked)} />Lees contact</label></div>
-    <Reasons preview={preview} /><button disabled={disabled || !preview.allowed}>{row.lot.processes.fermenting ? 'Update / restart fermentation' : 'Start / configure fermentation'}</button>
+    <Reasons preview={preview} /><button disabled={disabled || !preview.allowed}>{row.fermentationActionLabel}</button>
   </form>;
 }
 

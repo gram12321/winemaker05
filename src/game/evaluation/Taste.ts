@@ -74,6 +74,14 @@ export const TASTE_BALANCE = {
   familyRiskPenalty: 0.2,
 } as const;
 
+export interface WineDevelopmentProjection {
+  readonly maturationProgress: number;
+  readonly ageProgress: number;
+  readonly progress: number;
+  readonly maturationDecline: number;
+  readonly ageDecline: number;
+}
+
 /** Provisional display rules; labels are character cues and ties use family order above. */
 export const TASTE_DESCRIPTOR_RULES = {
   minimumFamilyExpression: 0.2,
@@ -151,6 +159,28 @@ function deriveSourceCharacter(sources: readonly TasteSource[]): {
   };
 }
 
+/** Shared sensory and buyer projection from current maturation and wine-development age. */
+function projectWineDevelopment(lot: PhysicalLot, agingPotential: number): WineDevelopmentProjection {
+  const maturationProgress = clamp(lot.physical.maturation / TASTE_BALANCE.maturationFullExpression);
+  const ageProgress = clamp(lot.physical.developmentAgeDays / TASTE_BALANCE.ageDaysFullExpression);
+  const progress = clamp(
+    (maturationProgress * TASTE_BALANCE.maturationProgressWeight + ageProgress * TASTE_BALANCE.ageProgressWeight)
+      * (TASTE_BALANCE.agingPotentialBase + agingPotential * TASTE_BALANCE.agingPotentialWeight),
+  );
+  return {
+    maturationProgress,
+    ageProgress,
+    progress,
+    maturationDecline: clamp(
+      (lot.physical.maturation - TASTE_BALANCE.maturationDeclineStart) / TASTE_BALANCE.maturationDeclineSpan,
+    ),
+    ageDecline: clamp(
+      (lot.physical.developmentAgeDays - TASTE_BALANCE.ageFreshnessDeclineStartDays)
+        / TASTE_BALANCE.ageFreshnessDeclineSpanDays,
+    ),
+  };
+}
+
 function descriptorFor(family: TasteFamily, profile: TasteProfile, lot: PhysicalLot): string {
   const { physical } = lot;
   switch (family) {
@@ -190,7 +220,7 @@ function descriptorFor(family: TasteFamily, profile: TasteProfile, lot: Physical
 }
 
 /** Current sensory identity from lot material and fraction-weighted source grapes. */
-export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descriptors: readonly string[] } {
+export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descriptors: readonly string[]; development: WineDevelopmentProjection } {
   const { physical } = lot;
   const source = deriveSourceCharacter(orderedSources(lot));
   const aroma = clamp(physical.aroma) * clamp(
@@ -200,23 +230,12 @@ export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descrip
     clamp(physical.oxidation) * (1 - TASTE_BALANCE.oxygenExposureShare)
       + clamp(physical.oxygenExposure / TASTE_BALANCE.oxygenExposureFullExpression) * TASTE_BALANCE.oxygenExposureShare,
   );
-  const maturation = clamp(physical.maturation / TASTE_BALANCE.maturationFullExpression);
-  const age = clamp(physical.ageDays / TASTE_BALANCE.ageDaysFullExpression);
-  const development = clamp(
-    (maturation * TASTE_BALANCE.maturationProgressWeight + age * TASTE_BALANCE.ageProgressWeight)
-      * (TASTE_BALANCE.agingPotentialBase + source.agingPotential * TASTE_BALANCE.agingPotentialWeight),
-  );
-  const maturationDecline = clamp(
-    (physical.maturation - TASTE_BALANCE.maturationDeclineStart) / TASTE_BALANCE.maturationDeclineSpan,
-  );
-  const ageDecline = clamp(
-    (physical.ageDays - TASTE_BALANCE.ageFreshnessDeclineStartDays) / TASTE_BALANCE.ageFreshnessDeclineSpanDays,
-  );
+  const development = projectWineDevelopment(lot, source.agingPotential);
   const aromaticRetention = clamp(
     1 - oxidation * TASTE_BALANCE.oxidationFreshnessWeight
       - physical.rot * TASTE_BALANCE.rotFreshnessWeight
-      - maturationDecline * TASTE_BALANCE.maturationFreshnessWeight
-      - ageDecline * TASTE_BALANCE.ageFreshnessWeight,
+      - development.maturationDecline * TASTE_BALANCE.maturationFreshnessWeight
+      - development.ageDecline * TASTE_BALANCE.ageFreshnessWeight,
   );
   const aromaticExpression = clamp(aroma * aromaticRetention);
   const green = clamp(physical.greenCharacter);
@@ -225,6 +244,7 @@ export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descrip
   const acidity = clamp(physical.acidity * TASTE_BALANCE.physicalAcidityShare
     + source.acidity * TASTE_BALANCE.sourceAcidityShare);
   const lees = clamp(physical.lees);
+  const maturation = development.maturationProgress;
 
   const families: TasteProfile = {
     redFruit: clamp(source.identity.redFruit
@@ -258,7 +278,7 @@ export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descrip
       + lees * TASTE_BALANCE.oakLeesWeight)
       * (1 - physical.rot * TASTE_BALANCE.familyRiskPenalty)),
     aged: clamp((source.identity.aged * TASTE_BALANCE.agedIdentityWeight
-      + development * TASTE_BALANCE.agedDevelopmentWeight
+      + development.progress * TASTE_BALANCE.agedDevelopmentWeight
       + oxidation * TASTE_BALANCE.agedOxidationWeight
       + lees * TASTE_BALANCE.agedLeesWeight)
       * (1 - physical.rot * TASTE_BALANCE.familyRiskPenalty)),
@@ -271,5 +291,5 @@ export function deriveTaste(lot: PhysicalLot): { families: TasteProfile; descrip
     .slice(0, TASTE_DESCRIPTOR_RULES.maximumDescriptors)
     .map(family => descriptorFor(family, families, lot));
 
-  return { families, descriptors };
+  return { families, descriptors, development };
 }

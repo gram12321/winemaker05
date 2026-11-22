@@ -9,9 +9,11 @@ import {
   SEVERE_OXIDATION_THRESHOLD,
   SEVERE_ROT_THRESHOLD,
   STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD,
+  STUCK_FERMENTATION_SUGAR_PENALTY_RANGE_G_PER_L,
   advanceRisks,
   diagnoseWine,
   hasSeverePhysicalFault,
+  physicalRiskPenaltyIntensity,
 } from '../../src/game/wine/Risks';
 import { GRAPES } from '../../src/game/vineyard/Catalog';
 import type { PhysicalLot, PhysicalState, WineEnvironment } from '../../src/game/wine/types';
@@ -30,6 +32,8 @@ function vineyard(): Vineyard {
     condition: 0.8,
     cropKg: 1_000,
     harvestedKg: 0,
+    lostKg: 0,
+    ripeKg: 700,
     rot: 0.04,
     nobleRot: 0.01,
   };
@@ -176,6 +180,50 @@ describe('causal wine risks', () => {
       expect(diagnosis.severity).toBeLessThanOrEqual(1);
       expect(diagnosis.explanation.length).toBeGreaterThan(10);
     }
+  });
+
+  it('starts each physical risk penalty at zero on its diagnosis threshold and bounds the strongest risk', () => {
+    for (const [field, threshold] of [
+      ['oxidation', OXIDATION_DIAGNOSIS_THRESHOLD],
+      ['rot', ROT_DIAGNOSIS_THRESHOLD],
+      ['greenCharacter', GREEN_CHARACTER_DIAGNOSIS_THRESHOLD],
+    ] as const) {
+      expect(physicalRiskPenaltyIntensity(lot({ [field]: threshold }))).toBe(0);
+      expect(physicalRiskPenaltyIntensity(lot({ [field]: threshold + 0.001 }))).toBeGreaterThan(0);
+      expect(physicalRiskPenaltyIntensity(lot({ [field]: 1 }))).toBe(1);
+    }
+
+    const halfOxidation = OXIDATION_DIAGNOSIS_THRESHOLD
+      + (1 - OXIDATION_DIAGNOSIS_THRESHOLD) * 0.5;
+    const halfRot = ROT_DIAGNOSIS_THRESHOLD + (1 - ROT_DIAGNOSIS_THRESHOLD) * 0.5;
+    const halfGreen = GREEN_CHARACTER_DIAGNOSIS_THRESHOLD
+      + (1 - GREEN_CHARACTER_DIAGNOSIS_THRESHOLD) * 0.5;
+    expect(physicalRiskPenaltyIntensity(lot({ oxidation: halfOxidation, rot: halfRot, greenCharacter: halfGreen })))
+      .toBeCloseTo(0.5);
+  });
+
+  it('keeps stuck-fermentation penalty continuous at both edges while retaining diagnostic severity', () => {
+    const sugarThreshold = MIN_FERMENTABLE_SUGAR_G_PER_L;
+    const yeastThreshold = STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD;
+    const sugarEdge = lot({ sugarGPerL: sugarThreshold, yeastActivity: 0 }, true);
+    const yeastEdge = lot({ sugarGPerL: sugarThreshold + 20, yeastActivity: yeastThreshold }, true);
+    const nearSugarEdge = lot({ sugarGPerL: sugarThreshold + 0.001, yeastActivity: yeastThreshold / 2 }, true);
+    const atQuarterYeast = lot({ sugarGPerL: sugarThreshold + 20, yeastActivity: yeastThreshold * 0.75 }, true);
+    const atHalfYeast = lot({ sugarGPerL: sugarThreshold + 20, yeastActivity: yeastThreshold / 2 }, true);
+    const atFullSugarRange = lot({
+      sugarGPerL: sugarThreshold + STUCK_FERMENTATION_SUGAR_PENALTY_RANGE_G_PER_L,
+      yeastActivity: 0,
+    }, true);
+
+    expect(physicalRiskPenaltyIntensity(sugarEdge)).toBe(0);
+    expect(physicalRiskPenaltyIntensity(yeastEdge)).toBe(0);
+    expect(physicalRiskPenaltyIntensity(nearSugarEdge)).toBeGreaterThan(0);
+    expect(physicalRiskPenaltyIntensity(atHalfYeast)).toBeGreaterThan(physicalRiskPenaltyIntensity(atQuarterYeast));
+    expect(physicalRiskPenaltyIntensity(atFullSugarRange)).toBe(1);
+
+    const diagnosis = diagnoseWine(atHalfYeast).find(({ code }) => code === 'stuck-fermentation');
+    expect(diagnosis?.severity).toBeCloseTo(0.5);
+    expect(physicalRiskPenaltyIntensity(atHalfYeast)).toBeCloseTo(0.25);
   });
 
   it('diagnoses stuck fermentation only above the shared sugar threshold with active fermentation and low yeast', () => {

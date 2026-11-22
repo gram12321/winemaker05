@@ -8,7 +8,7 @@ function lot(grapeId: GrapeId = 'pinot-noir'): PhysicalLot {
   const anchors = { sugarGPerL: 210, acidity: 0.7, phenolics: 0.6, aromatics: 0.8, body: 0.5, agingPotential: 0.7 } as const;
   return {
     id: 'lot', wineId: 'wine', name: 'Pinot', form: 'wine', origin, anchors,
-    physical: { sugarGPerL: 20, alcoholPct: 11, acidity: 0.6, phenolics: 0.3, remainingPhenolics: 0.2, aroma: 0.7, yeastActivity: 0.5, oxygenExposure: 0, oxidation: 0, maturation: 0.2, oak: 0.1, lees: 0.1, greenCharacter: 0, rot: 0, ageDays: 30 },
+    physical: { sugarGPerL: 20, alcoholPct: 11, acidity: 0.6, phenolics: 0.3, remainingPhenolics: 0.2, aroma: 0.7, yeastActivity: 0.5, oxygenExposure: 0, oxidation: 0, maturation: 0.2, oak: 0.1, lees: 0.1, greenCharacter: 0, rot: 0, ageDays: 30, developmentAgeDays: 30 },
     processes: { fermenting: false, skinContact: false, temperatureC: 18, leesContact: false },
     parentIds: [], sources: [{ origin, anchors, fraction: 1 }], history: [], bottling: null,
   };
@@ -43,7 +43,7 @@ describe('current taste projection', () => {
     const extreme = withPhysical(input, {
       sugarGPerL: 400, acidity: 1, phenolics: 1, remainingPhenolics: 0, aroma: 1,
       oxygenExposure: 1_000, oxidation: 1, maturation: 100, oak: 1, lees: 1,
-      greenCharacter: 1, rot: 1, ageDays: 100_000,
+      greenCharacter: 1, rot: 1, ageDays: 100_000, developmentAgeDays: 100_000,
     });
     for (const value of Object.values(deriveTaste(extreme).families)) {
       expect(Number.isFinite(value) && value >= 0 && value <= 1).toBe(true);
@@ -96,12 +96,12 @@ describe('current taste projection', () => {
     const oaked = deriveTaste(withPhysical(input, { oak: 0.8 })).families;
     expect(oaked.oak).toBeGreaterThan(baseline.oak);
 
-    const mature = deriveTaste(withPhysical(input, { maturation: 1.4, ageDays: 730, lees: 0.8 })).families;
+    const mature = deriveTaste(withPhysical(input, { maturation: 1.4, ageDays: 730, developmentAgeDays: 730, lees: 0.8 })).families;
     expect(mature.aged).toBeGreaterThan(baseline.aged);
     expect(mature.earth).toBeGreaterThan(baseline.earth);
     expect(mature.redFruit).toBeLessThan(baseline.redFruit);
 
-    const bottleAged = deriveTaste(withPhysical(input, { ageDays: 900 })).families;
+    const bottleAged = deriveTaste(withPhysical(input, { ageDays: 900, developmentAgeDays: 900 })).families;
     expect(bottleAged.aged).toBeGreaterThan(baseline.aged);
     expect(bottleAged.redFruit).toBeLessThan(baseline.redFruit);
 

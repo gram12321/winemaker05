@@ -1,17 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { decideCommand } from '../../src/game/core/decideCommand';
 import { readCompanyState } from '../../src/game/core/CompanyState';
+import { MAX_SNAPSHOT_TEXT_LENGTH } from '../../src/game/core/Numbers';
 import { CompanySession } from '../../src/authority/session';
-import { forecastLot } from '../../src/game/queries/CompanyView';
+import { companyView, forecastLot } from '../../src/game/queries/CompanyView';
 import { previewCommand } from '../../src/game/queries/ActionPreviews';
 import { apply, createBottledScenario, createHarvestedScenario } from '../helpers/CoreScenario';
 import { InMemorySave } from '../authority/inMemorySave';
 import { companyStateAt } from '../helpers/CompanyState';
-import { resolveWeather } from '../../src/game/vineyard/Rules';
+import { advanceVineyard, resolveWeather } from '../../src/game/vineyard/Rules';
 import { planCalendarAdvance } from '../../src/game/calendar/Calendar';
 import { HARVEST_RAIN_STOP_MM } from '../../src/game/work/Rules';
 
 describe('integrated core production and sale loop', () => {
+  it('reconciles preview, material and XP when rot reduces an active harvest target', () => {
+    let state = companyStateAt({ year: 1, season: 1, week: 6 });
+    state = apply(state, { type: 'vineyard.establish', name: 'Crop test', siteId: 'hillside', grapeId: 'pinot-noir', areaHa: 0.02 });
+    const vineyard = { ...state.estate.vineyards[0], cropKg: 100, harvestedKg: 70, ripeKg: 30, ripeness: 1, rot: 0.4 };
+    state = { ...state, estate: { ...state.estate, vineyards: [vineyard] } };
+    state = apply(state, { type: 'harvest.start', vineyardId: vineyard.id, kilograms: 30, staffIds: state.work.staff.map(worker => worker.id) });
+    const planned = planCalendarAdvance(state.calendar);
+    if (planned.kind !== 'planned') throw new Error('Calendar did not advance.');
+    const weather = resolveWeather(planned.next, state.week + 1);
+    const advanced = advanceVineyard(vineyard, weather, planned.next, false);
+    const preview = companyView({ ...state, estate: { vineyards: [advanced], weather } });
+    expect(advanced).toMatchObject({ cropKg: 100, harvestedKg: 70, lostKg: 1.05, ripeKg: 28.95 });
+    expect(preview.vineyards[0].harvestableKg).toBe(28.95);
+    expect(preview.workPreview.outputs[0].kilograms).toBe(28.95);
+
+    const next = apply(state, { type: 'time.advance' });
+    expect(next.estate.vineyards[0]).toMatchObject({ cropKg: 100, harvestedKg: 98.95, lostKg: 1.05, ripeKg: 0 });
+    expect(next.inventory.holdings[0].quantity).toBe(28_950);
+    expect(next.work.activities).toEqual([]);
+    expect(next.work.staff).toEqual(preview.workPreview.work.staff);
+    expect(next.work.staff.reduce((sum, worker) => sum + worker.experience, 0)).toBeCloseTo(28.95);
+    expect(readCompanyState(next).kind).toBe('valid');
+  });
+
   it('can pause harvest for generated heavy rain without awarding material or experience', () => {
     const harvested = createHarvestedScenario();
     let state = harvested.state;
@@ -69,6 +94,52 @@ describe('integrated core production and sale loop', () => {
     expect(after.physical.ageDays).toBe(bottled.physical.ageDays + 7);
     expect(after.bottling).toEqual(bottled.bottling);
     expect(after.anchors).toEqual(bottled.anchors);
+  });
+
+  it('records weekly development causes from the resolved fermentation and cellar environments', () => {
+    const scenario = createBottledScenario();
+    const source = scenario.state.winery.lots.find(lot => lot.id === scenario.bulkId)!;
+    const fermenting = {
+      ...source,
+      form: 'must' as const,
+      physical: { ...source.physical, sugarGPerL: 52, alcoholPct: 12, yeastActivity: 1, greenCharacter: 0.65 },
+      processes: { ...source.processes, fermenting: true, temperatureC: 20, skinContact: true, leesContact: true },
+    };
+    const candidate = readCompanyState({
+      ...scenario.state,
+      winery: { ...scenario.state.winery, lots: scenario.state.winery.lots.map(lot => lot.id === source.id ? fermenting : lot) },
+      equipment: {
+        ...scenario.state.equipment,
+        cellarTemperatureC: 20,
+        vessels: scenario.state.equipment.vessels.map(vessel => ({ ...vessel, material: 'oak' as const })),
+      },
+    });
+    if (candidate.kind === 'invalid') throw new Error(candidate.reasons.join(' '));
+
+    const next = apply(candidate.state, { type: 'time.advance' });
+    const history = next.winery.lots.find(lot => lot.id === source.id)!.history
+      .filter(entry => entry.week === next.week && entry.action === 'Development');
+    const details = history.map(entry => entry.detail);
+    const detail = details.join(' ');
+    const developedLot = next.winery.lots.find(lot => lot.id === source.id)!;
+
+    expect(developedLot.physical.sugarGPerL).toBe(4);
+    expect(developedLot.processes.fermenting).toBe(false);
+    expect(history.length).toBeGreaterThan(1);
+    expect(detail.length).toBeGreaterThan(MAX_SNAPSHOT_TEXT_LENGTH);
+    expect(details.every(value => value.length <= MAX_SNAPSHOT_TEXT_LENGTH)).toBe(true);
+    expect(details.every(value => value.endsWith('.'))).toBe(true);
+    expect(detail).toContain('Oxygen exposure/oxidation:');
+    expect(detail).toContain('Rot:');
+    expect(detail).toContain('contamination');
+    expect(detail).toContain('sugar >4 g/L');
+    expect(detail).toContain('sugar ≤4 g/L');
+    expect(detail).toContain('20°C fermenting');
+    expect(detail).toContain('20°C cellar');
+    expect((detail.match(/Rot:/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(detail).toContain('Green character softened:');
+    expect(detail).toContain('Skins: phenolics');
+    expect(detail).toContain('Lees +');
   });
 
   it('previews the same stock/cash outcome constraints and cannot oversell', () => {

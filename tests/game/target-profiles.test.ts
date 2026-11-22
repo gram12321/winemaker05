@@ -86,6 +86,7 @@ function lot(grapeId: GrapeId = 'pinot-noir', anchors: RawMaterialAnchors = ANCH
       greenCharacter: 0,
       rot: 0,
       ageDays: 90,
+      developmentAgeDays: 90,
     },
     processes: { fermenting: false, skinContact: false, temperatureC: 18, leesContact: false },
     parentIds: [],
@@ -139,7 +140,7 @@ describe('contextual bounded target profiles', () => {
     for (const target of [...Object.values(structural), ...Object.values(taste)]) {
       expect(target.reasons).toHaveLength(2);
       expect(target.reasons[0]).toContain('Baseline:');
-      expect(target.reasons[1]).toContain('Applied cross-axis shift:');
+      expect(target.reasons[1]).toContain('Combined target displacement from that base is');
     }
   });
 
@@ -180,22 +181,128 @@ describe('contextual bounded target profiles', () => {
     expect(blendStructure.body.reasons[0]).toContain('Sauvignon Blanc 70.00%');
   });
 
+  it('applies the movement cap to source-weighted blend context and interaction together', () => {
+    const pinot = lot('pinot-noir', { ...ANCHORS, body: 0 });
+    const tempranillo = lot('tempranillo', { ...ANCHORS, body: 1 });
+    const sources = [
+      { ...pinot.sources[0], fraction: 0.25 },
+      { ...tempranillo.sources[0], fraction: 0.75 },
+    ];
+    const blend = { ...pinot, sources };
+    const reversedBlend = { ...pinot, sources: [...sources].reverse() };
+    const neutralBlend = {
+      ...blend,
+      sources: sources.map(source => ({
+        ...source,
+        anchors: { ...source.anchors, body: 0.5 },
+      })),
+    };
+    const noInteractionProfile = { ...STRUCTURE_PROFILE, tannins: 0.2 };
+    const interactingProfile = { ...STRUCTURE_PROFILE, tannins: 1 };
+    const baseCenter = midpoint(structureTargets(neutralBlend, noInteractionProfile).body);
+    const targets = structureTargets(blend, interactingProfile);
+
+    expect(targets).toEqual(structureTargets(reversedBlend, interactingProfile));
+    expect(midpoint(targets.body) - baseCenter).toBeCloseTo(TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis);
+    expect(targets.body.reasons[0]).toContain('Pinot Noir 25.00%');
+    expect(targets.body.reasons[0]).toContain('Tempranillo 75.00%');
+    expect(targets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.030');
+    expect(targets.body.reasons[1]).toContain('requested +0.210');
+    expect(targets.body.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to +0.120');
+  });
+
   it('raises the body target for high tannins without shifting tannins or excusing extreme tannins', () => {
     const input = lot();
     const lowTanninProfile = { ...STRUCTURE_PROFILE, tannins: 0.2 };
     const highTanninProfile = { ...STRUCTURE_PROFILE, tannins: 1 };
     const lowTargets = structureTargets(input, lowTanninProfile);
     const highTargets = structureTargets(input, highTanninProfile);
+    const noAnchorShift = structureTargets(
+      lot('pinot-noir', { ...ANCHORS, body: 0.5 }),
+      lowTanninProfile,
+    );
 
     expect(midpoint(highTargets.body)).toBeGreaterThan(midpoint(lowTargets.body));
-    expect(midpoint(highTargets.body) - midpoint(lowTargets.body)).toBeCloseTo(
+    expect(midpoint(highTargets.body) - midpoint(noAnchorShift.body)).toBeCloseTo(
       TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis,
     );
     expect(highTargets.tannins.low).toBe(lowTargets.tannins.low);
     expect(highTargets.tannins.high).toBe(lowTargets.tannins.high);
     expect(evaluateProfile(highTanninProfile, highTargets).axes.tannins.fit).toBe(0);
-    expect(highTargets.body.reasons[1]).toContain('High tannin expression (1.00)');
-    expect(highTargets.body.reasons[1]).toContain('bounded by the');
+    expect(highTargets.body.reasons[1]).toContain('Cross-axis movement: +0.180 requested. High tannin expression (1.00)');
+    expect(highTargets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.005');
+    expect(highTargets.body.reasons[1]).toContain('requested +0.185');
+    expect(highTargets.body.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to +0.120');
+    expect(highTargets.body.reasons[1]).not.toContain('target-center bounds');
+  });
+
+  it('caps negative anchor and interaction movement as a signed combined shift', () => {
+    const noAnchorShift = structureTargets(
+      lot('tempranillo', { ...ANCHORS, acidity: 0.5 }),
+      { ...STRUCTURE_PROFILE, sweetness: 0.4 },
+    );
+    const targets = structureTargets(
+      lot('tempranillo', { ...ANCHORS, acidity: 0 }),
+      { ...STRUCTURE_PROFILE, sweetness: 1 },
+    );
+
+    expect(midpoint(targets.acidity) - midpoint(noAnchorShift.acidity)).toBeCloseTo(
+      -TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis,
+    );
+    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0.080 requested.');
+    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is -0.050');
+    expect(targets.acidity.reasons[1]).toContain('requested -0.130');
+    expect(targets.acidity.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to -0.120');
+  });
+
+  it('lets an opposite-sign interaction cancel source-anchor movement within the signed budget', () => {
+    const sourceWeightedBase = structureTargets(
+      lot('tempranillo', { ...ANCHORS, acidity: 0.5 }),
+      { ...STRUCTURE_PROFILE, sweetness: 0.4 },
+    );
+    const targets = structureTargets(
+      lot('tempranillo', { ...ANCHORS, acidity: 1 }),
+      { ...STRUCTURE_PROFILE, sweetness: 1 },
+    );
+
+    expect(midpoint(targets.acidity) - midpoint(sourceWeightedBase.acidity)).toBeCloseTo(-0.03);
+    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0.080 requested.');
+    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.050');
+    expect(targets.acidity.reasons[1]).toContain('requested -0.030; final displacement -0.030');
+    expect(targets.acidity.reasons[1]).not.toContain('axis movement budget');
+  });
+
+  it('reports a requested cross-axis shift clipped by target-center bounds separately from the movement budget', () => {
+    const input = lot('tempranillo', { ...ANCHORS, body: 1 });
+    const noInteraction = structureTargets(input, { ...STRUCTURE_PROFILE, tannins: 0.58 });
+    const profile = { ...STRUCTURE_PROFILE, tannins: 0.75 };
+    const targets = structureTargets(input, profile);
+
+    expect(midpoint(targets.body) - midpoint(noInteraction.body)).toBeCloseTo(0.06);
+    expect(targets.body.reasons[1]).toContain('Cross-axis movement: +0.102 requested.');
+    expect(targets.body.reasons[1]).toContain(
+      'target-center bounds [0.20, 0.80] cap the unbudgeted request at +0.120',
+    );
+    expect(targets.body.reasons[1]).toContain(
+      'axis movement budget +/-0.120 limits the combined shift to +0.120',
+    );
+  });
+
+  it('reports an anchor shift that is entirely clipped by the target-center bound', () => {
+    const input = lot('sauvignon-blanc', { ...ANCHORS, aromatics: 1 });
+    const target = structureTargets(input, STRUCTURE_PROFILE).aroma;
+
+    expect(target.reasons[0]).toContain('aromatic anchor 1.00 requests center shift +0.050');
+    expect(target.reasons[0]).toContain(
+      'target-center bounds [0.20, 0.80] limit the applied shift to +0.000',
+    );
+  });
+
+  it('rejects a lot without source provenance instead of synthesizing a fallback source', () => {
+    const sourceLessLot = { ...lot(), sources: [] };
+
+    expect(() => structureTargets(sourceLessLot, STRUCTURE_PROFILE)).toThrow(RangeError);
+    expect(() => tasteTargets(sourceLessLot, TASTE_PROFILE)).toThrow(RangeError);
   });
 
   it('keeps extreme profiles bounded and enforces the minimum range width and movement cap', () => {
@@ -272,7 +379,7 @@ describe('contextual bounded target profiles', () => {
     expect({ input, structureProfile, tasteProfile }).toEqual(before);
     for (const axis of STRUCTURE_AXES) {
       expect(baselineTargets[axis].reasons[0]).toContain('Baseline:');
-      expect(baselineTargets[axis].reasons[1]).toContain('Applied cross-axis shift:');
+      expect(baselineTargets[axis].reasons[1]).toContain('Combined target displacement from that base is');
       expect(assessment.axes[axis].reasons).toEqual(baselineTargets[axis].reasons);
     }
   });

@@ -38,7 +38,7 @@ function wine(physical: Partial<PhysicalState> = {}): PhysicalLot {
     physical: {
       sugarGPerL: 2, alcoholPct: 12, acidity: 0.7, phenolics: 0.3, remainingPhenolics: 0.2,
       aroma: 0.42, yeastActivity: 0.3, oxygenExposure: 0.05, oxidation: 0.02, maturation: 0,
-      oak: 0, lees: 0, greenCharacter: 0.1, rot: 0.02, ageDays: 21, ...physical,
+      oak: 0, lees: 0, greenCharacter: 0.1, rot: 0.02, ageDays: 21, developmentAgeDays: 21, ...physical,
     },
     processes: { fermenting: false, skinContact: false, temperatureC: 21, leesContact: false },
     parentIds: [], sources: [{ origin, anchors, fraction: 1 }], history: [], bottling: null,
@@ -162,7 +162,7 @@ describe('continuous wine maturation', () => {
     expect(advanceMaturation(lot, environment, 100)).toEqual(full);
     expect(lot).toEqual(snapshot);
     for (const field of ['sugarGPerL', 'alcoholPct', 'phenolics', 'remainingPhenolics', 'yeastActivity',
-      'oxygenExposure', 'oxidation', 'greenCharacter', 'rot', 'ageDays'] as const) {
+      'oxygenExposure', 'oxidation', 'greenCharacter', 'rot', 'ageDays', 'developmentAgeDays'] as const) {
       expect(full[field]).toBe(snapshot.physical[field]);
     }
     expect(full.oak).toBeGreaterThan(0);
@@ -172,7 +172,7 @@ describe('continuous wine maturation', () => {
     expect(() => advanceMaturation({ ...lot, physical: { ...lot.physical, maturation: Number.MAX_VALUE } }, environment, 1)).toThrow(/numeric range/);
   });
 
-  it('progresses through early integration and softening, a maturity window, and aromatic decline', () => {
+  it('progresses through softening, a maturity window, and aromatic decline without recreating lost aroma', () => {
     const lot = wine();
     const early = advanceMaturation(lot, climate(), 250);
     const inWindow = { ...lot, physical: early };
@@ -181,8 +181,7 @@ describe('continuous wine maturation', () => {
     expect(maturityOutlook(inWindow).label).toBe('In maturity window');
     expect(maturityOutlook({ ...lot, physical: late }).label).toBe('Declining');
     expect(early.acidity).toBeLessThan(lot.physical.acidity);
-    expect(early.aroma).toBeGreaterThan(lot.physical.aroma);
-    expect(early.aroma).toBeLessThanOrEqual(lot.anchors.aromatics);
+    expect(early.aroma).toBe(lot.physical.aroma);
     expect(late.aroma).toBeLessThan(early.aroma);
     expect(late.maturation).toBeGreaterThan(1);
     expect(maturityOutlook({ ...lot, physical: { ...lot.physical, maturation: MATURITY_WINDOW_START } }).label).toBe('In maturity window');
@@ -215,7 +214,7 @@ describe('continuous wine maturation', () => {
     expect(oak.oak).toBeGreaterThan(noOak.oak);
     expect(withLees.lees).toBeGreaterThan(noOak.lees);
     const oxidized = { ...lot, physical: { ...lot.physical, oxidation: 0.7 } };
-    expect(advanceMaturation(oxidized, climate(), 250).aroma).toBeLessThan(advanceMaturation(lot, climate(), 250).aroma);
+    expect(advanceMaturation(oxidized, climate(), 1000).aroma).toBeLessThan(advanceMaturation(lot, climate(), 1000).aroma);
     const fullAroma = { ...lot, physical: { ...lot.physical, aroma: lot.anchors.aromatics } };
     expect(advanceMaturation(fullAroma, climate(), 250).aroma).toBeLessThanOrEqual(lot.anchors.aromatics);
   });

@@ -5,15 +5,16 @@ import type { GrapeId, Vineyard } from '../../src/game/vineyard/types';
 import { createHarvestLot } from '../../src/game/wine/Anchors';
 import {
   FERMENTATION_ALCOHOL_PCT_PER_G_PER_L_SUGAR,
-  describeDevelopment,
   developLot,
 } from '../../src/game/wine/Development';
 import { advanceMaturation } from '../../src/game/wine/Maturation';
 import {
   MIN_FERMENTABLE_SUGAR_G_PER_L,
   bottleLot,
+  blendLots,
   configureFermentation,
   pressLot,
+  splitLot,
 } from '../../src/game/wine/Operations';
 import { advanceRisks, diagnoseWine, STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD } from '../../src/game/wine/Risks';
 import type { PhysicalLot, PhysicalState, WineEnvironment } from '../../src/game/wine/types';
@@ -22,7 +23,7 @@ function harvest(grapeId: GrapeId = 'pinot-noir'): PhysicalLot {
   const vineyard: Vineyard = {
     id: 'development-vineyard', name: 'Development Vineyard', siteId: 'hillside', grapeId,
     areaHa: 1, plantedYear: 2020, cropYear: 2030, ripeness: 0.9, condition: 0.9,
-    cropKg: 1000, harvestedKg: 0, rot: 0.03, nobleRot: 0.01,
+    cropKg: 1000, harvestedKg: 0, lostKg: 0, ripeKg: 800, rot: 0.03, nobleRot: 0.01,
   };
   return createHarvestLot({
     id: `lot-${grapeId}`, wineId: `wine-${grapeId}`, name: GRAPES[grapeId].name,
@@ -70,10 +71,51 @@ function expectBounded(lot: PhysicalLot): void {
   expect(physical.oxygenExposure).toBeGreaterThanOrEqual(0);
   expect(physical.maturation).toBeGreaterThanOrEqual(0);
   expect(Number.isSafeInteger(physical.ageDays)).toBe(true);
+  expect(Number.isSafeInteger(physical.developmentAgeDays)).toBe(true);
+  expect(physical.developmentAgeDays).toBeLessThanOrEqual(physical.ageDays);
   expect(physical.phenolics + physical.remainingPhenolics).toBeLessThanOrEqual(lot.anchors.phenolics + 1e-7);
+  expect(physical.aroma).toBeLessThanOrEqual(lot.anchors.aromatics + 1e-7);
 }
 
 describe('unified physical wine development', () => {
+  it('does not recreate lost aroma when old and young wines are blended, split and bottled', () => {
+    const climate = environment({ oxygenIngress: 0, oakStrength: 0, contaminationRisk: 0 });
+    const grapes = harvest();
+    expect(grapes.physical.aroma).toBe(grapes.anchors.aromatics);
+    const young = developLot(configure(must()), climate, 60).lot;
+    expect(young.form).toBe('wine');
+    const agedPortion = splitLot(young, 'aged-portion', 3);
+    const old = developLot(agedPortion, climate, 800).lot;
+    expect(old.physical.aroma).toBeLessThan(young.physical.aroma);
+    const inputsBefore = structuredClone({ young, old });
+
+    const result = blendLots([{ lot: young, quantity: 50_000 }, { lot: old, quantity: 5_000 }], 'young-old-blend', 'Blend', 4);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    const blend = result.value;
+    expect(blend.physical.maturation).toBeLessThan(0.45);
+    expect(blend.physical.aroma).toBeCloseTo((young.physical.aroma * 50_000 + old.physical.aroma * 5_000) / 55_000, 12);
+    expect(blend.physical.phenolics).toBeCloseTo((young.physical.phenolics * 50_000 + old.physical.phenolics * 5_000) / 55_000, 12);
+    expect(blend.physical.remainingPhenolics).toBeCloseTo((young.physical.remainingPhenolics * 50_000 + old.physical.remainingPhenolics * 5_000) / 55_000, 12);
+    const blendBefore = structuredClone(blend);
+    const developed = developLot(blend, climate, 7).lot;
+    expect(developed.physical.aroma).toBeLessThanOrEqual(blend.physical.aroma);
+
+    const developedBefore = structuredClone(developed);
+    const portion = splitLot(developed, 'blend-portion', 5);
+    const portionBefore = structuredClone(portion);
+    const bottled = bottleLot(portion, 'blend-bottled', 6, { week: 6, structure: 0.7, taste: 0.7, quality: 0.7 });
+    expect(bottled.ok).toBe(true);
+    if (!bottled.ok) throw new Error(bottled.reason);
+    expect(portion.physical).toEqual(developed.physical);
+    expect(bottled.value.physical).toEqual(portion.physical);
+    expect(developLot(bottled.value, climate, 7).lot.physical.aroma).toBeLessThanOrEqual(portion.physical.aroma);
+    expect({ young, old }).toEqual(inputsBefore);
+    expect(blend).toEqual(blendBefore);
+    expect(developed).toEqual(developedBefore);
+    expect(portion).toEqual(portionBefore);
+  });
+
   it('converts only the consumed sugar into alcohol, advances age, and does not mutate the source', () => {
     const source = configure(must());
     const snapshot = structuredClone(source);
@@ -91,9 +133,32 @@ describe('unified physical wine development', () => {
     expect(result.lot.parentIds).toEqual(snapshot.parentIds);
     expect(result.lot.history).toEqual(snapshot.history);
     expect(result.lot.bottling).toEqual(snapshot.bottling);
-    expect(result.causes).toEqual(describeDevelopment(source, result.lot));
-    expect(result.causes.some(cause => cause.includes('Fermentation converted'))).toBe(true);
+    expect(result.causes.some(cause => cause.includes('Fermentation: sugar -'))).toBe(true);
+    expect(result.causes.some(cause => cause.includes('Oxygen exposure/oxidation') && cause.includes('°C'))).toBe(true);
     expectBounded(result.lot);
+  });
+
+  it('explains one changed environmental pressure without blaming unchanged pressures', () => {
+    const configured = configure(must());
+    const source = { ...configured, processes: { ...configured.processes, fermenting: false } };
+    const neutral = environment({ temperatureC: 15, oxygenIngress: 0, oakStrength: 0, contaminationRisk: 0 });
+    const oxygenOnly = developLot(source, { ...neutral, oxygenIngress: 0.004 }, 1);
+    const warmerOnly = developLot(source, { ...neutral, temperatureC: 24 }, 1);
+    const contaminationOnly = developLot(source, { ...neutral, contaminationRisk: 0.7 }, 1);
+
+    expect(oxygenOnly.lot.physical.oxidation).toBeGreaterThan(source.physical.oxidation);
+    expect(oxygenOnly.lot.physical.rot).toBe(source.physical.rot);
+    expect(oxygenOnly.causes.find(cause => cause.startsWith('Oxygen exposure/oxidation:')))
+      .toContain('0.004/day oxygen ingress, 15°C cellar');
+    expect(oxygenOnly.causes.some(cause => cause.startsWith('Rot:'))).toBe(false);
+
+    expect(warmerOnly.lot.physical.oxidation).toBe(source.physical.oxidation);
+    expect(warmerOnly.lot.physical.rot).toBe(source.physical.rot);
+    expect(warmerOnly.causes.some(cause => cause.includes('24°C cellar'))).toBe(true);
+
+    expect(contaminationOnly.lot.physical.rot).toBeGreaterThan(source.physical.rot);
+    expect(contaminationOnly.causes.find(cause => cause.startsWith('Rot:')))
+      .toContain('contamination 0.7, 15°C cool, sugar >4 g/L (cellar)');
   });
 
   it('finishes at exactly the shared sugar threshold and never consumes dry residual sugar', () => {
@@ -104,7 +169,7 @@ describe('unified physical wine development', () => {
       .toBeCloseTo((source.physical.sugarGPerL - MIN_FERMENTABLE_SUGAR_G_PER_L) * FERMENTATION_ALCOHOL_PCT_PER_G_PER_L_SUGAR, 12);
     expect(result.lot.form).toBe('wine');
     expect(result.lot.processes.fermenting).toBe(false);
-    expect(result.causes.some(cause => cause.includes('Fermentation completed'))).toBe(true);
+    expect(result.causes.some(cause => cause.includes('Fermentation complete'))).toBe(true);
 
     const alreadyDry = withPhysical(source, { sugarGPerL: 2.5 });
     const finished = developLot(alreadyDry, environment(), 1).lot;
@@ -242,7 +307,11 @@ describe('unified physical wine development', () => {
     };
     const matured = advanceMaturation(transformed, climate, 1);
     const risked = advanceRisks({ ...transformed, physical: matured }, climate, 1);
-    expect(result.physical).toEqual({ ...risked, ageDays: source.physical.ageDays + 1 });
+    expect(result.physical).toEqual({
+      ...risked,
+      ageDays: source.physical.ageDays + 1,
+      developmentAgeDays: source.physical.developmentAgeDays + 1,
+    });
     expect(result.form).toBe('wine');
     expect(result.physical.maturation).toBeGreaterThan(source.physical.maturation);
     expect(result.physical.oxygenExposure).toBeGreaterThan(source.physical.oxygenExposure);
@@ -274,8 +343,11 @@ describe('unified physical wine development', () => {
     }
     expect(() => developLot(withPhysical(source, { sugarGPerL: Number.NaN }), environment(), 1)).toThrow();
     expect(() => developLot(withPhysical(source, { sugarGPerL: source.anchors.sugarGPerL + 1 }), environment(), 1)).toThrow();
+    expect(() => developLot(withPhysical(source, { aroma: source.anchors.aromatics + 0.01 }), environment(), 1)).toThrow(/aroma/);
     expect(() => developLot(withPhysical(source, { yeastActivity: 1.1 }), environment(), 1)).toThrow();
     expect(() => developLot(withPhysical(source, { ageDays: Number.MAX_SAFE_INTEGER }), environment(), 1)).toThrow();
+    expect(() => developLot(withPhysical(source, { ageDays: 1, developmentAgeDays: 2 }), environment(), 1)).toThrow();
+    expect(() => developLot(withPhysical(source, { ageDays: Number.MAX_SAFE_INTEGER, developmentAgeDays: Number.MAX_SAFE_INTEGER }), environment(), 1)).toThrow();
     expect(() => developLot(withPhysical(source, { oxygenExposure: Number.MAX_VALUE }), environment(), 1)).toThrow();
     expect(() => developLot(withPhysical({ ...source, form: 'wine' }, { maturation: Number.MAX_VALUE }), environment(), 1)).toThrow();
     expect(() => developLot(source, environment({ temperatureC: Number.NaN }), 1)).toThrow();

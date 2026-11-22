@@ -37,7 +37,10 @@ export interface PhysicalState {
   readonly lees: number;
   readonly greenCharacter: number;
   readonly rot: number;
+  /** Elapsed time since the lot was created, including pre-wine storage. */
   readonly ageDays: number;
+  /** Quantity-weighted days accrued while the lot met the physical maturation threshold. */
+  readonly developmentAgeDays: number;
 }
 
 export interface ProcessSettings {

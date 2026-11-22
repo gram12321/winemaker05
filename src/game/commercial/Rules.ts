@@ -1,5 +1,5 @@
 import { clamp, failure, success, type RuleResult } from '../core/Numbers';
-import { deriveTaste, TASTE_BALANCE } from '../evaluation/Taste';
+import { deriveTaste } from '../evaluation/Taste';
 import type { TasteFamily, TasteProfile, WineAssessment } from '../evaluation/types';
 import type { PhysicalLot } from '../wine/types';
 import type { BuyerId, CommercialState, Sale, WineContract } from './types';
@@ -122,23 +122,6 @@ function weightedOriginValue(lot: PhysicalLot, value: (origin: PhysicalLot['orig
     : null;
 }
 
-function weightedAnchorValue(lot: PhysicalLot, value: (source: PhysicalLot['sources'][number]) => number): number | null {
-  const sources = lot.sources.length > 0
-    ? lot.sources
-    : [{ origin: lot.origin, anchors: lot.anchors, fraction: 1 }];
-  let weightedTotal = 0;
-  let totalFraction = 0;
-  for (const source of sources) {
-    const anchor = value(source);
-    if (!Number.isFinite(source.fraction) || source.fraction <= 0 || !isUnitInterval(anchor)) return null;
-    weightedTotal += source.fraction * anchor;
-    totalFraction += source.fraction;
-  }
-  return totalFraction > 0 && Number.isFinite(weightedTotal)
-    ? weightedTotal / totalFraction
-    : null;
-}
-
 function buyerStyleFit(profile: BuyerPricingProfile, taste: TasteProfile): number {
   let weightedFit = 0;
   let totalWeight = 0;
@@ -148,15 +131,6 @@ function buyerStyleFit(profile: BuyerPricingProfile, taste: TasteProfile): numbe
     totalWeight += weight;
   }
   return totalWeight > 0 ? clamp(weightedFit / totalWeight) : 0;
-}
-
-function currentDevelopment(lot: PhysicalLot, agingPotential: number): number {
-  const maturation = clamp(lot.physical.maturation / TASTE_BALANCE.maturationFullExpression);
-  const age = clamp(lot.physical.ageDays / TASTE_BALANCE.ageDaysFullExpression);
-  return clamp(
-    (maturation * TASTE_BALANCE.maturationProgressWeight + age * TASTE_BALANCE.ageProgressWeight)
-      * (TASTE_BALANCE.agingPotentialBase + agingPotential * TASTE_BALANCE.agingPotentialWeight),
-  );
 }
 
 function formatPercent(value: number): string {
@@ -240,14 +214,15 @@ export function quoteWine(
 
   const buyer = BUYER_PRICING_PROFILES[buyerId];
   const prestige = weightedOriginValue(lot, origin => origin.originPrestige);
-  const agingPotential = weightedAnchorValue(lot, source => source.anchors.agingPotential);
-  if (prestige === null || agingPotential === null || !Number.isSafeInteger(lot.physical.ageDays) || lot.physical.ageDays < 0 || !Number.isFinite(lot.physical.maturation) || lot.physical.maturation < 0) {
+  if (prestige === null || !Number.isSafeInteger(lot.physical.ageDays) || lot.physical.ageDays < 0
+    || !Number.isSafeInteger(lot.physical.developmentAgeDays) || lot.physical.developmentAgeDays < 0
+    || lot.physical.developmentAgeDays > lot.physical.ageDays || !Number.isFinite(lot.physical.maturation) || lot.physical.maturation < 0) {
     return failure('The wine has invalid origin or maturity information.');
   }
 
-  const taste = deriveTaste(lot).families;
-  const styleFit = buyerStyleFit(buyer, taste);
-  const development = currentDevelopment(lot, agingPotential);
+  const taste = deriveTaste(lot);
+  const styleFit = buyerStyleFit(buyer, taste.families);
+  const development = taste.development.progress;
   const maturityFit = clamp(1 - Math.abs(development - buyer.preferredDevelopment) / COMMERCIAL_BALANCE.maturityPreferenceSpan);
   const qualityFactor = buyer.qualityFloor + buyer.qualityRange * assessment.quality;
   const styleFactor = buyer.styleFloor + buyer.styleRange * styleFit;
@@ -303,7 +278,10 @@ export function contractEligibility(
     if (assessment.structure.score < contract.minimumStructure) reasons.push(`Structure is ${formatPercent(assessment.structure.score)}; this contract requires ${formatPercent(contract.minimumStructure)}.`);
     if (assessment.taste.score < contract.minimumTaste) reasons.push(`Taste fit is ${formatPercent(assessment.taste.score)}; this contract requires ${formatPercent(contract.minimumTaste)}.`);
   }
-  if (!Number.isSafeInteger(lot.physical.ageDays) || lot.physical.ageDays < contract.minimumAgeDays) {
+  if (!Number.isSafeInteger(lot.physical.ageDays) || lot.physical.ageDays < 0
+    || !Number.isSafeInteger(lot.physical.developmentAgeDays) || lot.physical.developmentAgeDays < 0
+    || lot.physical.developmentAgeDays > lot.physical.ageDays
+    || lot.physical.developmentAgeDays < contract.minimumAgeDays) {
     reasons.push(`This contract requires wine at least ${contract.minimumAgeDays} days old.`);
   }
   if (contract.grapeId !== null) {
@@ -316,21 +294,24 @@ export function contractEligibility(
   return Object.freeze({ eligible: reasons.length === 0, reasons: Object.freeze(reasons) });
 }
 
-/** Append one sale and its customer outcome; a repeated sale ID is an idempotent no-op. */
-export function recordSale(state: CommercialState, sale: Sale): CommercialState {
-  if (state.sales.some(existing => existing.id === sale.id)) return state;
+/** Append one sale and its customer outcome, rejecting any record that cannot be applied. */
+export function recordSale(state: CommercialState, sale: Sale): RuleResult<CommercialState> {
+  if (state.sales.some(existing => existing.id === sale.id)) return failure('This sale has already been recorded.');
   if (typeof sale.id !== 'string' || sale.id.length === 0 || !isBuyerId(sale.buyerId)
     || !Number.isSafeInteger(sale.week) || sale.week < 0
     || typeof sale.lotId !== 'string' || sale.lotId.length === 0
     || !Number.isSafeInteger(sale.bottles) || sale.bottles <= 0
     || !Number.isSafeInteger(sale.revenueCents) || sale.revenueCents < 0
-    || (sale.contractId !== null && (typeof sale.contractId !== 'string' || sale.contractId.length === 0))) return state;
+    || (sale.contractId !== null && (typeof sale.contractId !== 'string' || sale.contractId.length === 0))) {
+    return failure('The sale record is invalid.');
+  }
 
   const customerIndex = state.customers.findIndex(customer => customer.id === sale.buyerId);
-  if (customerIndex < 0) return state;
+  if (customerIndex < 0) return failure('The sale buyer is unavailable.');
   const customer = state.customers[customerIndex];
   const bottlesBought = customer.bottlesBought + sale.bottles;
-  if (!Number.isSafeInteger(bottlesBought) || !isUnitInterval(customer.relationship)) return state;
+  if (!Number.isSafeInteger(bottlesBought)) return failure('The customer bottle total exceeds supported whole-bottle precision.');
+  if (!isUnitInterval(customer.relationship)) return failure('The customer relationship is invalid.');
   const contractAlreadyCredited = sale.contractId !== null
     && state.sales.some(existing => existing.contractId === sale.contractId);
   const relationshipBottles = sale.contractId === null
@@ -348,9 +329,9 @@ export function recordSale(state: CommercialState, sale: Sale): CommercialState 
       bottlesBought,
     })
     : existing);
-  return Object.freeze({
+  return success(Object.freeze({
     ...state,
     customers: Object.freeze(customers),
     sales: Object.freeze([...state.sales, Object.freeze({ ...sale })]),
-  });
+  }));
 }

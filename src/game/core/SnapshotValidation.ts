@@ -1,10 +1,11 @@
 import type { CompanyState } from './CompanyState';
-import { BOTTLE_ML } from './Numbers';
-import { MAX_VINEYARD_AREA_HA, MIN_VINEYARD_AREA_HA } from '../vineyard/Rules';
-import { WINE_MATERIAL_LIMITS } from '../wine/MaterialLimits';
+import { BOTTLE_ML, MAX_SNAPSHOT_TEXT_LENGTH } from './Numbers';
+import { isGramQuantity, isVineyardCropStateValid, MAX_VINEYARD_AREA_HA, MIN_VINEYARD_AREA_HA } from '../vineyard/Rules';
+import { WINE_CAPACITY_EPSILON, WINE_MATERIAL_LIMITS } from '../wine/MaterialLimits';
+import { anchorsKey, originKey, sourceKey } from '../wine/Provenance';
 
 type Check = (value: unknown) => boolean;
-const text: Check = v => typeof v === 'string' && v.length > 0 && v.length <= 500;
+const text: Check = v => typeof v === 'string' && v.length > 0 && v.length <= MAX_SNAPSHOT_TEXT_LENGTH;
 const identifier: Check = v => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(v);
 const num = (low: number, high = Number.MAX_SAFE_INTEGER): Check => v => typeof v === 'number' && Number.isFinite(v) && v >= low && v <= high;
 const integer = (low = 0): Check => v => typeof v === 'number' && Number.isSafeInteger(v) && v >= low;
@@ -21,10 +22,10 @@ const shape = (fields: Readonly<Record<string, Check>>): Check => v => {
 const grape = oneOf('pinot-noir', 'tempranillo', 'sauvignon-blanc', 'chardonnay');
 const site = oneOf('hillside', 'riverbend', 'heritage');
 const buyer = oneOf('local-merchant', 'restaurant', 'collector');
-const vineyard = shape({ id: identifier, name: text, siteId: site, grapeId: grape, areaHa: num(MIN_VINEYARD_AREA_HA, MAX_VINEYARD_AREA_HA), plantedYear: integer(Number.MIN_SAFE_INTEGER), cropYear: integer(Number.MIN_SAFE_INTEGER), ripeness: fraction, condition: fraction, cropKg: num(0), harvestedKg: num(0), rot: fraction, nobleRot: fraction });
+const vineyard = shape({ id: identifier, name: text, siteId: site, grapeId: grape, areaHa: num(MIN_VINEYARD_AREA_HA, MAX_VINEYARD_AREA_HA), plantedYear: integer(Number.MIN_SAFE_INTEGER), cropYear: integer(Number.MIN_SAFE_INTEGER), ripeness: fraction, condition: fraction, cropKg: num(0), harvestedKg: num(0), lostKg: num(0), ripeKg: num(0), rot: fraction, nobleRot: fraction });
 const weather = shape({ temperatureC: num(-30, 60), rainMm: num(0, 1000), humidity: fraction });
 const anchors = shape({ sugarGPerL: num(0, WINE_MATERIAL_LIMITS.sugarGPerL), acidity: fraction, phenolics: fraction, aromatics: fraction, body: fraction, agingPotential: fraction });
-const physical = shape({ sugarGPerL: num(0, WINE_MATERIAL_LIMITS.sugarGPerL), alcoholPct: num(0, WINE_MATERIAL_LIMITS.alcoholPct), acidity: fraction, phenolics: fraction, remainingPhenolics: fraction, aroma: fraction, yeastActivity: fraction, oxygenExposure: num(0), oxidation: fraction, maturation: num(0), oak: fraction, lees: fraction, greenCharacter: fraction, rot: fraction, ageDays: integer() });
+const physical = shape({ sugarGPerL: num(0, WINE_MATERIAL_LIMITS.sugarGPerL), alcoholPct: num(0, WINE_MATERIAL_LIMITS.alcoholPct), acidity: fraction, phenolics: fraction, remainingPhenolics: fraction, aroma: fraction, yeastActivity: fraction, oxygenExposure: num(0), oxidation: fraction, maturation: num(0), oak: fraction, lees: fraction, greenCharacter: fraction, rot: fraction, ageDays: integer(), developmentAgeDays: integer() });
 const origin = shape({ vineyardId: identifier, vineyardName: text, region: text, siteId: site, grapeId: grape, vintage: integer(Number.MIN_SAFE_INTEGER), terroirPotential: fraction, originPrestige: fraction });
 const history = shape({ week: integer(), action: text, detail: text });
 const bottling = shape({ week: integer(), structure: fraction, taste: fraction, quality: fraction });
@@ -76,21 +77,56 @@ export function validateGameplayState(input: Record<string, unknown>): string[] 
   })) reasons.push('The next entity sequence must follow all generated IDs.');
   const lots = new Map(state.winery.lots.map(v => [v.id, v]));
   const allLots = new Map([...state.winery.archivedLots, ...state.winery.lots].map(v => [v.id, v]));
+  const sourceMaps = new Map([...allLots].map(([id, lot]) => [id, new Map(lot.sources.map(source => [sourceKey(source.origin, source.anchors), source.fraction]))]));
   const vessels = new Map(state.equipment.vessels.map(v => [v.id, v]));
   const holdings = new Map(state.inventory.holdings.map(v => [v.lotId, v]));
   const contracts = new Map(state.commercial.contracts.map(v => [v.id, v]));
   if (lots.size !== holdings.size) reasons.push('Each live lot requires exactly one holding.');
   for (const lot of allLots.values()) {
+    if (lot.physical.developmentAgeDays > lot.physical.ageDays) reasons.push(`Wine-development age exceeds elapsed lot age for ${lot.id}.`);
+    if (lot.form === 'grapes' && lot.physical.developmentAgeDays !== 0) reasons.push(`Whole grapes cannot have wine-development age for ${lot.id}.`);
     if (lots.has(lot.id) && !holdings.has(lot.id)) reasons.push(`Missing holding for ${lot.id}.`);
-    if (lot.physical.phenolics + lot.physical.remainingPhenolics > lot.anchors.phenolics + 1e-7) reasons.push(`Phenolic material exceeds inherited capacity for ${lot.id}.`);
-    if (lot.physical.sugarGPerL > lot.anchors.sugarGPerL + 1e-7) reasons.push(`Sugar exceeds inherited capacity for ${lot.id}.`);
+    if (lot.physical.phenolics + lot.physical.remainingPhenolics > lot.anchors.phenolics + WINE_CAPACITY_EPSILON) reasons.push(`Phenolic material exceeds inherited capacity for ${lot.id}.`);
+    if (lot.physical.sugarGPerL > lot.anchors.sugarGPerL + WINE_CAPACITY_EPSILON) reasons.push(`Sugar exceeds inherited capacity for ${lot.id}.`);
+    if (lot.physical.aroma > lot.anchors.aromatics + WINE_CAPACITY_EPSILON) reasons.push(`Aroma exceeds inherited capacity for ${lot.id}.`);
     if (lot.parentIds.includes(lot.id) || new Set(lot.parentIds).size !== lot.parentIds.length) reasons.push(`Invalid lineage for ${lot.id}.`);
     if (!lot.sources.length || Math.abs(lot.sources.reduce((sum, source) => sum + source.fraction, 0) - 1) > 1e-7) reasons.push(`Invalid source proportions for ${lot.id}.`);
+    const sourceMap = sourceMaps.get(lot.id)!;
+    if (sourceMap.size !== lot.sources.length) reasons.push(`Duplicate source baselines for ${lot.id}.`);
     if (Object.keys(lot.anchors).some(key => {
       const axis = key as keyof typeof lot.anchors;
       return Math.abs(lot.anchors[axis] - lot.sources.reduce((sum, source) => sum + source.anchors[axis] * source.fraction, 0)) > 1e-7;
     })) reasons.push(`Inherited anchors disagree with source baselines for ${lot.id}.`);
     if (lot.parentIds.some(id => !allLots.has(id))) reasons.push(`Missing lineage parent for ${lot.id}.`);
+    if (lot.sources.length) {
+      const largestFraction = lot.sources.reduce((largest, source) => Math.max(largest, source.fraction), 0);
+      if (!lot.sources.some(source => source.fraction === largestFraction && originKey(source.origin) === originKey(lot.origin))) {
+        reasons.push(`Origin disagrees with the dominant source for ${lot.id}.`);
+      }
+    }
+    if (lot.parentIds.length === 0) {
+      if (lot.sources.length !== 1 || sourceKey(lot.origin, lot.anchors) !== sourceKey(lot.sources[0].origin, lot.sources[0].anchors)) {
+        reasons.push(`Harvest provenance disagrees with its source for ${lot.id}.`);
+      }
+    } else if (lot.parentIds.length === 1) {
+      const parent = allLots.get(lot.parentIds[0]);
+      if (parent) {
+        const parentSources = sourceMaps.get(parent.id)!;
+        if (lot.wineId !== parent.wineId || originKey(lot.origin) !== originKey(parent.origin)
+          || anchorsKey(lot.anchors) !== anchorsKey(parent.anchors)
+          || sourceMap.size !== parentSources.size
+          || [...sourceMap].some(([key, fraction]) => parentSources.get(key) !== fraction)) {
+          reasons.push(`Inherited provenance disagrees with the parent for ${lot.id}.`);
+        }
+      }
+    } else if (lot.parentIds.every(id => allLots.has(id))) {
+      // Blend input quantities are not persisted; their source identities, but not
+      // exact parent-weighted fractions, can be verified against the retained parents.
+      const parentSources = new Set(lot.parentIds.flatMap(id => [...sourceMaps.get(id)!.keys()]));
+      if (lot.wineId !== lot.id || sourceMap.size !== parentSources.size || [...sourceMap.keys()].some(key => !parentSources.has(key))) {
+        reasons.push(`Blend provenance disagrees with its parents for ${lot.id}.`);
+      }
+    }
     if (lot.history.some((event, index) => event.week > state.week || (index > 0 && event.week < lot.history[index - 1].week))) reasons.push(`Invalid history chronology for ${lot.id}.`);
     if (lot.form === 'bottled' && (!lot.bottling || lot.processes.fermenting || lot.processes.skinContact)) reasons.push(`Invalid bottled process facts for ${lot.id}.`);
     if (lot.form !== 'bottled' && lot.bottling) reasons.push(`Unexpected bottling snapshot for ${lot.id}.`);
@@ -140,9 +176,9 @@ export function validateGameplayState(input: Record<string, unknown>): string[] 
     if (reserved > contract.bottles) reasons.push(`Over-reserved contract ${contract.id}.`);
   }
   for (const activity of state.work.activities) {
-    if (!state.estate.vineyards.some(v => v.id === activity.vineyardId) || activity.completedKg > activity.targetKg || !activity.staffIds.length || new Set(activity.staffIds).size !== activity.staffIds.length || !activity.staffIds.every(id => state.work.staff.some(v => v.id === id))) reasons.push(`Invalid harvest activity ${activity.id}.`);
+    if (!state.estate.vineyards.some(v => v.id === activity.vineyardId) || !isGramQuantity(activity.targetKg) || !isGramQuantity(activity.completedKg) || activity.completedKg > activity.targetKg || !activity.staffIds.length || new Set(activity.staffIds).size !== activity.staffIds.length || !activity.staffIds.every(id => state.work.staff.some(v => v.id === id))) reasons.push(`Invalid harvest activity ${activity.id}.`);
   }
-  for (const vineyard of state.estate.vineyards) if (vineyard.harvestedKg > vineyard.cropKg + 1e-7) reasons.push(`Harvest exceeds vineyard crop ${vineyard.id}.`);
+  for (const vineyard of state.estate.vineyards) if (!isVineyardCropStateValid(vineyard)) reasons.push(`Invalid vineyard crop accounting ${vineyard.id}.`);
   if (state.finance.postings.reduce((sum, p) => sum + p.amountCents, 0) !== state.finance.cashCents) reasons.push('Cash and financial postings disagree.');
   for (const unit of ['g', 'ml', 'bottle'] as const) {
     const quantity = state.inventory.holdings.filter(h => h.unit === unit).reduce((sum, h) => sum + h.quantity, 0);

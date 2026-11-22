@@ -1,7 +1,7 @@
 import type { CompanyState } from '../core/CompanyState';
 import type { GameCommand } from '../core/Commands';
 import { failure, success, type RuleResult } from '../core/Numbers';
-import { createVineyard, MINIMUM_HARVEST_RIPENESS } from '../vineyard/Rules';
+import { createVineyard, isGramQuantity, MINIMUM_HARVEST_RIPENESS, standingCropKg } from '../vineyard/Rules';
 import { recordPayment } from './Transactions';
 
 export function estateAction(state: CompanyState, command: GameCommand): RuleResult<CompanyState> {
@@ -19,7 +19,7 @@ export function estateAction(state: CompanyState, command: GameCommand): RuleRes
       if (state.work.activities.some(a => a.vineyardId === vineyard.id)) return failure('A harvest is already active for this vineyard.');
       if (!command.staffIds.length || !command.staffIds.every(id => state.work.staff.some(s => s.id === id))) return failure('Assign available staff to the harvest.');
       if (state.finance.wageArrearsCents > 0) return failure('Pay outstanding wages before starting new work.');
-      if (!Number.isSafeInteger(Math.round(command.kilograms * 1000)) || command.kilograms <= 0 || Math.abs(command.kilograms * 1000 - Math.round(command.kilograms * 1000)) > 1e-6 || command.kilograms > vineyard.cropKg - vineyard.harvestedKg + 1e-7) return failure('Choose a harvest quantity within the remaining crop, to the nearest gram.');
+      if (!isGramQuantity(command.kilograms) || command.kilograms < 0.001 || command.kilograms > standingCropKg(vineyard)) return failure('Choose a harvest quantity within the remaining crop, to the nearest gram.');
       return success({ ...state, sequence: state.sequence + 1, work: { ...state.work, activities: [...state.work.activities, { id: `harvest-${state.sequence}`, vineyardId: vineyard.id, targetKg: command.kilograms, completedKg: 0, staffIds: [...command.staffIds], priority: 1, blockedReason: null }] } });
     }
     case 'harvest.cancel': {

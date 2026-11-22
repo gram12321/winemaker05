@@ -1,6 +1,7 @@
 import { clamp, failure, success, type RuleResult } from '../core/Numbers';
 import type { BottlingAssessment, PhysicalLot, PhysicalState, ProcessSettings, RawMaterialAnchors, WineOrigin } from './types';
-import { WINE_MATERIAL_LIMITS } from './MaterialLimits';
+import { WINE_CAPACITY_EPSILON, WINE_MATERIAL_LIMITS } from './MaterialLimits';
+import { sourceKey } from './Provenance';
 
 /** Provisional cellar balance values. Inventory continues to own every amount. */
 export const MIN_PRESS_INTENSITY = 0;
@@ -94,7 +95,9 @@ function validPhysical(physical: PhysicalState): boolean {
     && isBetween(physical.lees, 0, 1)
     && isBetween(physical.greenCharacter, 0, 1)
     && isBetween(physical.rot, 0, 1)
-    && isSafeWeek(physical.ageDays);
+    && isSafeWeek(physical.ageDays)
+    && isSafeWeek(physical.developmentAgeDays)
+    && physical.developmentAgeDays <= physical.ageDays;
 }
 
 function validProcesses(processes: ProcessSettings): boolean {
@@ -120,8 +123,15 @@ function lotProblem(lot: PhysicalLot): string | null {
   if (!validOrigin(lot.origin)) return 'Wine lot origin is invalid.';
   if (!validAnchors(lot.anchors)) return 'Wine lot raw material anchors are invalid.';
   if (!validPhysical(lot.physical)) return 'Wine lot physical state is invalid.';
-  if (lot.physical.phenolics + lot.physical.remainingPhenolics > lot.anchors.phenolics + NORMALIZED_EPSILON) {
+  if (lot.form === 'grapes' && lot.physical.developmentAgeDays !== 0) return 'Whole grapes cannot have wine-development age.';
+  if (lot.physical.phenolics + lot.physical.remainingPhenolics > lot.anchors.phenolics + WINE_CAPACITY_EPSILON) {
     return 'Wine lot phenolics and remaining extractable capacity exceed inherited phenolic potential.';
+  }
+  if (lot.physical.sugarGPerL > lot.anchors.sugarGPerL + WINE_CAPACITY_EPSILON) {
+    return 'Wine lot sugar exceeds inherited sugar potential.';
+  }
+  if (lot.physical.aroma > lot.anchors.aromatics + WINE_CAPACITY_EPSILON) {
+    return 'Wine lot aroma exceeds inherited aromatic potential.';
   }
   if (!validProcesses(lot.processes)) return 'Wine lot process settings are invalid.';
   if (lot.processes.fermenting && !['must', 'wine'].includes(lot.form)) return 'Active fermentation requires must or wine.';
@@ -290,14 +300,6 @@ function weightedMean<T extends object>(items: readonly { value: T; weight: numb
   return result as unknown as T;
 }
 
-function sourceKey(origin: WineOrigin, anchors: RawMaterialAnchors): string {
-  return JSON.stringify([
-    origin.vineyardId, origin.vineyardName, origin.region, origin.siteId, origin.grapeId,
-    origin.vintage, origin.terroirPotential, origin.originPrestige,
-    anchors.sugarGPerL, anchors.acidity, anchors.phenolics, anchors.aromatics, anchors.body, anchors.agingPotential,
-  ]);
-}
-
 function blendSources(inputs: readonly { readonly lot: PhysicalLot; readonly weight: number }[]): PhysicalLot['sources'] {
   const grouped = new Map<string, { origin: WineOrigin; anchors: RawMaterialAnchors; fraction: number }>();
   for (const input of inputs) {
@@ -354,9 +356,13 @@ export function blendLots(
   const weights = orderedInputs.map(input => ({ lot: input.lot, weight: input.quantity / totalQuantity }));
   const physicalRaw = weightedMean(weights.map(({ lot, weight }) => ({ value: lot.physical, weight })));
   const anchorsRaw = weightedMean(weights.map(({ lot, weight }) => ({ value: lot.anchors, weight })));
-  const physical: PhysicalState = Object.freeze({ ...physicalRaw, ageDays: Math.round(physicalRaw.ageDays) });
+  const physical: PhysicalState = Object.freeze({
+    ...physicalRaw,
+    ageDays: Math.round(physicalRaw.ageDays),
+    developmentAgeDays: Math.round(physicalRaw.developmentAgeDays),
+  });
   const anchors: RawMaterialAnchors = Object.freeze(anchorsRaw);
-  if (physical.phenolics > anchors.phenolics + NORMALIZED_EPSILON) return failure('Blend phenolics cannot exceed weighted inherited phenolic capacity.');
+  if (physical.phenolics > anchors.phenolics + WINE_CAPACITY_EPSILON) return failure('Blend phenolics cannot exceed weighted inherited phenolic capacity.');
   const sources = blendSources(weights);
   const dominantSource = sources.reduce((dominant, source) => source.fraction > dominant.fraction ? source : dominant, sources[0]!);
   const latestHistoryWeek = orderedInputs.reduce((latest, input) => input.lot.history.reduce((value, event) => Math.max(value, event.week), latest), 0);

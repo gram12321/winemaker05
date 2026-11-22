@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { vineyardPurchaseQuote } from '../../game/queries/CompanyView';
+import { vineyardEstablishmentPreview } from '../../game/queries/CompanyView';
 import { previewCommand } from '../../game/queries/ActionPreviews';
 import type { GrapeId, SiteId } from '../../game/vineyard/types';
 import { ActivityList, ContextScene, decimal, Empty, money, percent, type GameProps } from './common';
@@ -9,18 +9,25 @@ function EstablishVineyard({ company, view, disabled, onCommand }: GameProps) {
   const [siteId, setSiteId] = useState<SiteId>('hillside');
   const [grapeId, setGrapeId] = useState<GrapeId>('pinot-noir');
   const [areaHa, setAreaHa] = useState(1);
-  const quote = vineyardPurchaseQuote(siteId, areaHa);
+  const establishmentPreview = vineyardEstablishmentPreview(siteId, grapeId, areaHa);
   const command = { type: 'vineyard.establish' as const, name: name.trim(), siteId, grapeId, areaHa };
-  const preview = previewCommand(company, command);
+  const commandPreview = previewCommand(company, command);
   return <form className="game-card game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
     <span className="eyebrow">GROW SOMETHING DISTINCTIVE</span><h2>Establish a vineyard</h2>
     <label>Vineyard name<input required maxLength={80} value={name} onChange={event => setName(event.target.value)} placeholder="Name your vineyard" /></label>
     <div className="game-form-grid"><label>Site<select value={siteId} onChange={event => setSiteId(event.target.value as SiteId)}>{view.siteOptions.map(site => <option key={site.id} value={site.id}>{site.name} · {site.region}</option>)}</select></label>
       <label>Grape<select value={grapeId} onChange={event => setGrapeId(event.target.value as GrapeId)}>{view.grapeOptions.map(grape => <option key={grape.id} value={grape.id}>{grape.name}</option>)}</select></label></div>
     <label>Area (hectares)<input type="number" required min="0.01" max="100" step="0.01" value={areaHa} onChange={event => setAreaHa(Number(event.target.value))} /></label>
-    <p>Land cost: {quote === null ? 'Enter a valid area' : money(quote)} · Cash: {money(view.finance.cashCents)}</p>
-    {name.trim() && !preview.allowed && <p className="game-warning">{preview.reasons.join(' ')}</p>}
-    <button className="game-primary" disabled={disabled || !preview.allowed}>Establish vineyard</button>
+    {establishmentPreview.ok ? <>
+      <dl className="game-metrics" aria-label="Establishment preview">
+        <div><dt>Land cost</dt><dd>{money(establishmentPreview.value.costCents)}</dd></div>
+        <div><dt>Terroir Potential</dt><dd>{percent(establishmentPreview.value.terroirPotential)}</dd></div>
+        <div><dt>Origin Prestige</dt><dd>{percent(establishmentPreview.value.originPrestige)}</dd></div>
+      </dl>
+      <p>Cash: {money(view.finance.cashCents)}</p>
+    </> : <p className="game-warning">{establishmentPreview.reason}</p>}
+    {name.trim() && !commandPreview.allowed && <p className="game-warning">{commandPreview.reasons.join(' ')}</p>}
+    <button className="game-primary" disabled={disabled || !establishmentPreview.ok || !commandPreview.allowed}>Establish vineyard</button>
   </form>;
 }
 

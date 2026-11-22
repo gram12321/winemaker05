@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply, createBottledScenario } from '../helpers/CoreScenario';
 import { decideCommand } from '../../src/game/core/decideCommand';
-import { readCompanyState } from '../../src/game/core/CompanyState';
+import { readCompanyState, type CompanyState } from '../../src/game/core/CompanyState';
 import { CompanySession } from '../../src/authority/session';
 import { InMemorySave } from '../authority/inMemorySave';
 
@@ -10,6 +10,21 @@ function contracted() {
   const contract = scenario.state.commercial.contracts.find(c => c.buyerId === 'local-merchant' && c.status === 'offered')!;
   if (!contract) throw new Error('No current merchant offer.');
   return { ...scenario, contract, state: apply(scenario.state, { type: 'contract.accept', contractId: contract.id }) };
+}
+
+function withBuyerBottleCount(state: CompanyState, buyerId: string, bottlesBought: number): CompanyState {
+  const candidate = {
+    ...state,
+    commercial: {
+      ...state.commercial,
+      customers: state.commercial.customers.map(customer => customer.id === buyerId
+        ? { ...customer, bottlesBought }
+        : customer),
+    },
+  };
+  const checked = readCompanyState(candidate);
+  if (checked.kind === 'invalid') throw new Error(checked.reasons.join(' '));
+  return checked.state;
 }
 
 describe('cross-domain material and commercial transactions', () => {
@@ -52,6 +67,54 @@ describe('cross-domain material and commercial transactions', () => {
     expect(next.inventory.holdings.filter(h => h.unit === 'bottle').reduce((sum, h) => sum + h.quantity, 0)).toBe(100 - scenario.contract.bottles);
     expect(next.inventory.reservations).toEqual([]);
     expect(decideCommand(next, { type: 'contract.fulfill', contractId: scenario.contract.id }).kind).toBe('rejected');
+  });
+
+  it('rejects a direct sale that would overflow the buyer counter without committing or reserving a receipt', async () => {
+    const scenario = createBottledScenario();
+    const state = withBuyerBottleCount(scenario.state, 'local-merchant', Number.MAX_SAFE_INTEGER);
+    expect(readCompanyState(state).kind).toBe('valid');
+    const before = structuredClone(state);
+    const command = { type: 'wine.sell' as const, lotId: scenario.bottledId, buyerId: 'local-merchant' as const, bottles: 1 };
+    const decision = decideCommand(state, command);
+    expect(decision.kind).toBe('rejected');
+    if (decision.kind === 'rejected') expect(decision.reasons.join(' ')).toContain('customer bottle total exceeds supported whole-bottle precision');
+    expect(state).toEqual(before);
+
+    const saves = new InMemorySave();
+    saves.seed('counter-company', state);
+    const session = new CompanySession(saves, () => 'counter-sale-attempt');
+    expect((await session.switchCompany('counter-company')).kind).toBe('loaded');
+    const envelope = { companyId: 'counter-company', commandId: 'counter-sale', expectedRevision: 0, command };
+    expect((await session.dispatch(envelope)).kind).toBe('rejected');
+    expect((await session.dispatch(envelope)).kind).toBe('rejected');
+    expect(session.getSnapshot()?.state).toEqual(before);
+    expect(saves.companies.get('counter-company')?.state).toEqual(before);
+    expect(saves.receipts.size).toBe(0);
+    expect(saves.pending.size).toBe(0);
+    expect(saves.writes).toBe(0);
+  });
+
+  it('rolls back every lot in a contract when a later delivery line overflows the buyer counter', () => {
+    const scenario = contracted();
+    let state = apply(scenario.state, { type: 'wine.split', lotId: scenario.bottledId, quantity: 10, vesselId: null });
+    const child = state.winery.lots.find(lot => lot.form === 'bottled' && lot.id !== scenario.bottledId)!;
+    state = apply(state, { type: 'contract.reserve', contractId: scenario.contract.id, lotId: child.id, bottles: 10 });
+    state = apply(state, { type: 'contract.reserve', contractId: scenario.contract.id, lotId: scenario.bottledId, bottles: scenario.contract.bottles - 10 });
+
+    const reservations = state.inventory.reservations.filter(reservation => reservation.contractId === scenario.contract.id)
+      .sort((a, b) => a.lotId.localeCompare(b.lotId));
+    expect(reservations).toHaveLength(2);
+    const firstLineCount = reservations[0].bottles;
+    state = withBuyerBottleCount(state, scenario.contract.buyerId, Number.MAX_SAFE_INTEGER - firstLineCount);
+    expect(readCompanyState(state).kind).toBe('valid');
+    expect(state.commercial.customers.find(customer => customer.id === scenario.contract.buyerId)?.bottlesBought)
+      .toBe(Number.MAX_SAFE_INTEGER - firstLineCount);
+    const before = structuredClone(state);
+
+    const decision = decideCommand(state, { type: 'contract.fulfill', contractId: scenario.contract.id });
+    expect(decision.kind).toBe('rejected');
+    if (decision.kind === 'rejected') expect(decision.reasons.join(' ')).toContain('customer bottle total exceeds supported whole-bottle precision');
+    expect(state).toEqual(before);
   });
 
   it('releases reservations at a missed deadline and applies default once', () => {

@@ -24,6 +24,7 @@ export const GREEN_FADE_TEMPERATURE_FACTOR_MAX = 1.5;
 
 /** Fermentation restart restores at least 0.24 activity; lower activity is considered stalled. */
 export const STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD = 0.08;
+export const STUCK_FERMENTATION_SUGAR_PENALTY_RANGE_G_PER_L = 40;
 
 /** Fault reporting and severe physical fault thresholds are independent of structural fit. */
 export const OXIDATION_DIAGNOSIS_THRESHOLD = 0.2;
@@ -129,6 +130,39 @@ function fault(code: string, severity: number, explanation: string): WineFault {
   return Object.freeze({ code, severity: clamp(severity), explanation });
 }
 
+function intensityAboveDiagnosisThreshold(value: number, threshold: number): number {
+  return clamp((value - threshold) / (1 - threshold));
+}
+
+function stuckFermentationPenaltyIntensity(lot: PhysicalLot): number {
+  if (!lot.processes.fermenting) return 0;
+
+  const yeastShortfall = clamp(
+    (STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD - lot.physical.yeastActivity)
+      / STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD,
+  );
+  const residualSugar = clamp(
+    (lot.physical.sugarGPerL - MIN_FERMENTABLE_SUGAR_G_PER_L)
+      / STUCK_FERMENTATION_SUGAR_PENALTY_RANGE_G_PER_L,
+  );
+  return yeastShortfall * residualSugar;
+}
+
+/**
+ * Return the strongest continuous physical-risk penalty, independent of whether
+ * each risk has crossed its reporting threshold. Each reported risk starts at
+ * zero intensity on that boundary, and concurrent risks never stack.
+ */
+export function physicalRiskPenaltyIntensity(lot: PhysicalLot): number {
+  const { physical } = lot;
+  return Math.max(
+    intensityAboveDiagnosisThreshold(physical.oxidation, OXIDATION_DIAGNOSIS_THRESHOLD),
+    intensityAboveDiagnosisThreshold(physical.rot, ROT_DIAGNOSIS_THRESHOLD),
+    intensityAboveDiagnosisThreshold(physical.greenCharacter, GREEN_CHARACTER_DIAGNOSIS_THRESHOLD),
+    stuckFermentationPenaltyIntensity(lot),
+  );
+}
+
 /** Derive physical faults from current material/process facts, separate from structure fit. */
 export function diagnoseWine(lot: PhysicalLot): readonly WineFault[] {
   const { physical } = lot;
@@ -159,7 +193,10 @@ export function diagnoseWine(lot: PhysicalLot): readonly WineFault[] {
     && physical.sugarGPerL > MIN_FERMENTABLE_SUGAR_G_PER_L
     && physical.yeastActivity < STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD) {
     const yeastShortfall = 1 - physical.yeastActivity / STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD;
-    const residualSugar = clamp((physical.sugarGPerL - MIN_FERMENTABLE_SUGAR_G_PER_L) / 40);
+    const residualSugar = clamp(
+      (physical.sugarGPerL - MIN_FERMENTABLE_SUGAR_G_PER_L)
+        / STUCK_FERMENTATION_SUGAR_PENALTY_RANGE_G_PER_L,
+    );
     faults.push(fault(
       'stuck-fermentation',
       yeastShortfall * 0.75 + residualSugar * 0.25,

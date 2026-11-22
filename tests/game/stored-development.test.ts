@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createVineyard } from '../../src/game/vineyard/Rules';
 import { createWineOrigin } from '../../src/game/vineyard/Origin';
+import { MAX_SNAPSHOT_TEXT_LENGTH } from '../../src/game/core/Numbers';
 import { createHarvestLot } from '../../src/game/wine/Anchors';
 import { configureFermentation, pressLot } from '../../src/game/wine/Operations';
 import { developLot } from '../../src/game/wine/Development';
@@ -39,6 +40,21 @@ describe('daily environment handover', () => {
     expect(actual.lot.physical.maturation).toBeLessThan(developLot(input.lot, controlled, 3).lot.physical.maturation);
     expect(input).toEqual(before);
     expect(actual.causes.length).toBeGreaterThan(0);
+  });
+
+  it('attributes risk changes to the actual environment on each side of fermentation completion', () => {
+    const input = nearCompletion();
+    const result = developStoredLot({ ...input, days: 3 });
+    const oxidation = result.causes.filter(cause => cause.startsWith('Oxygen exposure/oxidation:'));
+    const rot = result.causes.find(cause => cause.startsWith('Rot:'));
+
+    expect(oxidation.map(cause => cause.includes('20°C fermenting'))).toContain(true);
+    expect(oxidation.map(cause => cause.includes('10°C cellar'))).toContain(true);
+    expect(rot).toContain('contamination 0.05');
+    expect(rot).toContain('20°C');
+    expect(rot).toContain('sugar ≤4 g/L (fermenting)');
+    expect(rot).not.toContain('10°C');
+    expect(result.causes.every(cause => cause.length <= MAX_SNAPSHOT_TEXT_LENGTH)).toBe(true);
   });
 
   it('handles zero days without progression and rejects unsupported intervals', () => {

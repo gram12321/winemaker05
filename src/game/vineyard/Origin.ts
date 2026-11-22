@@ -104,8 +104,8 @@ export function createWineOrigin(vineyard: Vineyard): WineOrigin {
   if (!isRecord(vineyard)) throw new TypeError('Vineyard must be an object.');
   if (typeof vineyard.id !== 'string' || vineyard.id.trim().length === 0) throw new RangeError('Vineyard ID must not be empty.');
   if (typeof vineyard.name !== 'string' || vineyard.name.trim().length === 0) throw new RangeError('Vineyard name must not be empty.');
-  if (!Number.isSafeInteger(vineyard.cropYear) || (vineyard.cropYear as number) < 0) {
-    throw new RangeError('Vineyard crop year must be a non-negative safe integer.');
+  if (!Number.isSafeInteger(vineyard.cropYear)) {
+    throw new RangeError('Vineyard crop year must be a safe integer.');
   }
   if (!hasCatalogEntry(vineyard.siteId, SITES)) throw new RangeError('Vineyard site is not present in the current catalogue.');
   if (!hasCatalogEntry(vineyard.grapeId, GRAPES)) throw new RangeError('Vineyard grape is not present in the current catalogue.');

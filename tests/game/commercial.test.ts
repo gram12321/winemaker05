@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { assessWine } from '../../src/game/evaluation/Assessment';
 import { quoteWine, acceptContract, advanceContracts, contractEligibility, createContractOffers, recordSale } from '../../src/game/commercial/Rules';
+import { OXIDATION_DIAGNOSIS_THRESHOLD } from '../../src/game/wine/Risks';
 import type { BuyerId, CommercialState, Sale, WineContract } from '../../src/game/commercial/types';
 import type { GrapeId } from '../../src/game/vineyard/types';
 import type { PhysicalLot } from '../../src/game/wine/types';
@@ -16,7 +17,7 @@ function lot(grapeId: GrapeId = 'pinot-noir', form: PhysicalLot['form'] = 'bottl
     physical: {
       sugarGPerL: 20, alcoholPct: 12, acidity: 0.6, phenolics: 0.3, remainingPhenolics: 0.27,
       aroma: 0.7, yeastActivity: 0.35, oxygenExposure: 0, oxidation: 0, maturation: 0.58,
-      oak: 0.12, lees: 0.18, greenCharacter: 0, rot: 0, ageDays: 360,
+      oak: 0.12, lees: 0.18, greenCharacter: 0, rot: 0, ageDays: 360, developmentAgeDays: 360,
     },
     processes: { fermenting: false, skinContact: false, temperatureC: 18, leesContact: false },
     parentIds: [], sources: [{ origin, anchors, fraction: 1 }], history: [],
@@ -37,6 +38,11 @@ function state(contracts: readonly WineContract[] = []): CommercialState {
 }
 
 function unwrapQuote(result: ReturnType<typeof quoteWine>) {
+  if (!result.ok) throw new Error(result.reason);
+  return result.value;
+}
+
+function unwrapSale(result: ReturnType<typeof recordSale>): CommercialState {
   if (!result.ok) throw new Error(result.reason);
   return result.value;
 }
@@ -197,30 +203,66 @@ describe('commercial NPC buyers and contracts', () => {
 
     const atEarlierMaturity = {
       ...lot(),
-      physical: { ...lot().physical, ageDays: 400, maturation: 1.2 },
+      physical: { ...lot().physical, ageDays: 400, developmentAgeDays: 400, maturation: 1.2 },
     };
     const pastPreferredWindow = {
       ...atEarlierMaturity,
-      physical: { ...atEarlierMaturity.physical, ageDays: 730 },
+      physical: { ...atEarlierMaturity.physical, ageDays: 730, developmentAgeDays: 730 },
     };
     const earlierQuote = unwrapQuote(quoteWine(atEarlierMaturity, assessWine(atEarlierMaturity), 'local-merchant', 0.5, 1));
     const olderQuote = unwrapQuote(quoteWine(pastPreferredWindow, assessWine(pastPreferredWindow), 'local-merchant', 0.5, 1));
     expect(olderQuote.pricePerBottleCents).toBeLessThan(earlierQuote.pricePerBottleCents);
   });
 
-  it('records a sale immutably and makes repeated sale IDs idempotent', () => {
+  it('keeps assessed quality and price continuous as oxidation first crosses its diagnosis threshold', () => {
+    const source = lot();
+    const sample = (oxidation: number) => {
+      const candidate = { ...source, physical: { ...source.physical, oxidation } };
+      const assessment = assessWine(candidate);
+      const quote = quoteWine(candidate, assessment, 'local-merchant', 0.5, 1);
+      if (!quote.ok) throw new Error(quote.reason);
+      return { assessment, price: quote.value.pricePerBottleCents };
+    };
+    const justBelow = sample(OXIDATION_DIAGNOSIS_THRESHOLD - 0.000001);
+    const atThreshold = sample(OXIDATION_DIAGNOSIS_THRESHOLD);
+    const justAbove = sample(OXIDATION_DIAGNOSIS_THRESHOLD + 0.000001);
+
+    expect(justBelow.assessment.faults.map(fault => fault.code)).not.toContain('oxidation');
+    expect(atThreshold.assessment.faults.map(fault => fault.code)).toContain('oxidation');
+    expect(atThreshold.assessment.quality).toBeCloseTo(justBelow.assessment.quality, 12);
+    expect(justAbove.assessment.quality).toBeLessThan(atThreshold.assessment.quality);
+    expect(atThreshold.price).toBe(justBelow.price);
+    expect(Math.abs(justAbove.price - atThreshold.price)).toBeLessThanOrEqual(1);
+  });
+
+  it('records a sale immutably and rejects a repeated sale ID', () => {
     const original = state();
     const sale: Sale = { id: 'sale-1', week: 8, lotId: 'lot-pinot', buyerId: 'local-merchant', bottles: 6, revenueCents: 3_000, contractId: null };
     const before = structuredClone(original);
-    const recorded = recordSale(original, sale);
+    const recorded = unwrapSale(recordSale(original, sale));
     expect(original).toEqual(before);
     expect(recorded.sales).toEqual([sale]);
     expect(recorded.customers[0].bottlesBought).toBe(6);
     expect(recorded.customers[0].relationship).toBeGreaterThan(0.5);
-    expect(recordSale(recorded, sale)).toBe(recorded);
+    expect(recordSale(recorded, sale)).toMatchObject({ ok: false, reason: 'This sale has already been recorded.' });
     expect(recorded.sales).toHaveLength(1);
     expect(recorded.customers[0].bottlesBought).toBe(6);
     expect(recorded.customers[0].relationship).toBeGreaterThan(0.5);
+  });
+
+  it('rejects an unsafe customer bottle total without changing commercial state', () => {
+    const original = {
+      ...state(),
+      customers: state().customers.map(customer => customer.id === 'local-merchant'
+        ? { ...customer, bottlesBought: Number.MAX_SAFE_INTEGER }
+        : customer),
+    };
+    const before = structuredClone(original);
+    const result = recordSale(original, {
+      id: 'sale-overflow', week: 8, lotId: 'lot-pinot', buyerId: 'local-merchant', bottles: 1, revenueCents: 500, contractId: null,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'The customer bottle total exceeds supported whole-bottle precision.' });
+    expect(original).toEqual(before);
   });
 
   it('keeps relationship gains independent of sale splitting and credits a contract only once', () => {
@@ -228,34 +270,34 @@ describe('commercial NPC buyers and contracts', () => {
     const accepted = acceptContract(offer, 1);
     if (!accepted.ok) throw new Error(accepted.reason);
 
-    const oneContractLine = recordSale(state([accepted.value]), {
+    const oneContractLine = unwrapSale(recordSale(state([accepted.value]), {
       id: 'contract-sale-whole', week: 4, lotId: 'lot-pinot', buyerId: 'local-merchant',
       bottles: offer.bottles, revenueCents: offer.pricePerBottleCents * offer.bottles, contractId: offer.id,
-    });
-    const firstContractLot = recordSale(state([accepted.value]), {
+    }));
+    const firstContractLot = unwrapSale(recordSale(state([accepted.value]), {
       id: 'contract-sale-part-a', week: 4, lotId: 'lot-pinot-a', buyerId: 'local-merchant',
       bottles: 9, revenueCents: offer.pricePerBottleCents * 9, contractId: offer.id,
-    });
-    const splitContractLines = recordSale(firstContractLot, {
+    }));
+    const splitContractLines = unwrapSale(recordSale(firstContractLot, {
       id: 'contract-sale-part-b', week: 4, lotId: 'lot-pinot-b', buyerId: 'local-merchant',
       bottles: offer.bottles - 9, revenueCents: offer.pricePerBottleCents * (offer.bottles - 9), contractId: offer.id,
-    });
+    }));
     expect(splitContractLines.customers[0].relationship).toBe(oneContractLine.customers[0].relationship);
     expect(splitContractLines.customers[0].bottlesBought).toBe(offer.bottles);
     expect(splitContractLines.sales).toHaveLength(2);
 
-    const directWhole = recordSale(state(), {
+    const directWhole = unwrapSale(recordSale(state(), {
       id: 'direct-sale-whole', week: 4, lotId: 'lot-pinot', buyerId: 'local-merchant',
       bottles: offer.bottles, revenueCents: 4_000, contractId: null,
-    });
-    const directPartA = recordSale(state(), {
+    }));
+    const directPartA = unwrapSale(recordSale(state(), {
       id: 'direct-sale-part-a', week: 4, lotId: 'lot-pinot-a', buyerId: 'local-merchant',
       bottles: 9, revenueCents: 1_500, contractId: null,
-    });
-    const directSplit = recordSale(directPartA, {
+    }));
+    const directSplit = unwrapSale(recordSale(directPartA, {
       id: 'direct-sale-part-b', week: 4, lotId: 'lot-pinot-b', buyerId: 'local-merchant',
       bottles: offer.bottles - 9, revenueCents: 2_500, contractId: null,
-    });
+    }));
     expect(directSplit.customers[0].relationship).toBe(directWhole.customers[0].relationship);
   });
 });

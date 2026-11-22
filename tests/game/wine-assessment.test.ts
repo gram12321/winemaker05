@@ -5,7 +5,13 @@ import { evaluateProfile } from '../../src/game/evaluation/MovingTargets';
 import { structureTargets, tasteTargets } from '../../src/game/evaluation/Profiles';
 import { deriveStructure } from '../../src/game/evaluation/Sensory';
 import { deriveTaste } from '../../src/game/evaluation/Taste';
-import { diagnoseWine } from '../../src/game/wine/Risks';
+import { bottleLot } from '../../src/game/wine/Operations';
+import {
+  OXIDATION_DIAGNOSIS_THRESHOLD,
+  advanceRisks,
+  diagnoseWine,
+  physicalRiskPenaltyIntensity,
+} from '../../src/game/wine/Risks';
 import type { PhysicalLot } from '../../src/game/wine/types';
 
 function lot(): PhysicalLot {
@@ -51,6 +57,7 @@ function lot(): PhysicalLot {
       greenCharacter: 0,
       rot: 0,
       ageDays: 90,
+      developmentAgeDays: 90,
     },
     processes: { fermenting: false, skinContact: false, temperatureC: 18, leesContact: false },
     parentIds: [],
@@ -134,9 +141,57 @@ describe('current wine assessment', () => {
       expect.objectContaining({ code: 'oxidation', severity: 0.8 }),
     ]);
     expect(damaged.quality).toBeCloseTo(
-      damaged.structure.score * (1 - ASSESSMENT_QUALITY_POLICY.maximumFaultReductionShare * 0.8),
+      damaged.structure.score * (1 - ASSESSMENT_QUALITY_POLICY.maximumPhysicalRiskReductionShare * 0.75),
     );
     expect(damaged.quality).toBeLessThan(baseline.quality);
+  });
+
+  it('uses only the strongest concurrent physical-risk penalty', () => {
+    const oxidation = OXIDATION_DIAGNOSIS_THRESHOLD
+      + (1 - OXIDATION_DIAGNOSIS_THRESHOLD) * 0.5;
+    const singleRisk = { ...lot(), physical: { ...lot().physical, oxidation } };
+    const combinedRisks = {
+      ...singleRisk,
+      physical: { ...singleRisk.physical, rot: 0.575 },
+    };
+
+    expect(physicalRiskPenaltyIntensity(singleRisk)).toBeCloseTo(0.5);
+    expect(physicalRiskPenaltyIntensity(combinedRisks)).toBeCloseTo(0.5);
+    expect(assessWine(combinedRisks).structure).toEqual(assessWine(singleRisk).structure);
+    expect(assessWine(combinedRisks).quality).toBeCloseTo(assessWine(singleRisk).quality);
+    expect(assessWine(combinedRisks).quality).toBeCloseTo(
+      assessWine(combinedRisks).structure.score
+        * (1 - ASSESSMENT_QUALITY_POLICY.maximumPhysicalRiskReductionShare * 0.5),
+    );
+  });
+
+  it('stores risk-adjusted quality in the bottling snapshot while later risk development remains current', () => {
+    const base = lot();
+    const source = {
+      ...base,
+      physical: { ...base.physical, sugarGPerL: 4, oxidation: 0.6 },
+    };
+    const assessment = assessWine(source);
+    const bottled = bottleLot(source, 'lot-pinot-bottled', 0, {
+      week: 0,
+      structure: assessment.structure.score,
+      taste: assessment.taste.score,
+      quality: assessment.quality,
+    });
+    if (!bottled.ok) throw new Error(bottled.reason);
+
+    const snapshot = structuredClone(bottled.value.bottling);
+    const laterPhysical = advanceRisks(bottled.value, {
+      temperatureC: 15,
+      oxygenIngress: 0.01,
+      oakStrength: 0,
+      contaminationRisk: 0,
+    }, 7);
+    const developed = { ...bottled.value, physical: laterPhysical };
+
+    expect(bottled.value.bottling?.quality).toBe(assessment.quality);
+    expect(assessWine(developed).quality).toBeLessThan(assessment.quality);
+    expect(developed.bottling).toEqual(snapshot);
   });
 
   it('keeps taste fit independent from summary quality when the structural profile is unchanged', () => {

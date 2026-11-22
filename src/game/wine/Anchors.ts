@@ -167,6 +167,7 @@ export function createHarvestLot(input: {
       greenCharacter,
       rot: effectiveRot,
       ageDays: 0,
+      developmentAgeDays: 0,
     }),
     processes: Object.freeze({
       fermenting: false,

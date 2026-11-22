@@ -13,8 +13,6 @@ export const MATURATION_MAX_TEMPERATURE_FACTOR = 2.5;
 export const MATURATION_AGING_POTENTIAL_BASE = 0.55;
 export const MATURATION_AGING_POTENTIAL_WEIGHT = 1.45;
 export const ACID_SOFTENING_PER_MATURITY = 0.08;
-export const AROMA_RELEASE_PER_MATURITY = 0.24;
-export const AROMA_RELEASE_END_MATURITY = MATURITY_WINDOW_START;
 export const AROMA_DECLINE_START_MATURITY = 0.95;
 export const AROMA_DECLINE_PER_MATURITY = 0.5;
 export const OXIDATION_AROMA_DECLINE_WEIGHT = 0.5;
@@ -34,15 +32,21 @@ function temperatureFactor(temperatureC: number): number {
     MATURATION_MIN_TEMPERATURE_FACTOR, MATURATION_MAX_TEMPERATURE_FACTOR);
 }
 
+/** The physical eligibility rule shared by maturation and wine-development age. */
+export function canMatureLot(lot: Pick<PhysicalLot, 'form' | 'physical'>): boolean {
+  if (lot.form === 'grapes') return false;
+  return lot.form === 'wine' || lot.form === 'bottled'
+    || lot.physical.alcoholPct >= BOTTLING_MIN_ALCOHOL_PCT;
+}
+
 function advanceOneDay(lot: PhysicalLot, physical: PhysicalState, environment: WineEnvironment): PhysicalState {
   if (lot.form === 'grapes') return physical;
   const warmth = temperatureFactor(environment.temperatureC);
   // Partially fermented must needs a physical alcohol threshold; idle juice cannot age into wine.
-  const canMature = lot.form === 'wine' || lot.form === 'bottled'
-    || physical.alcoholPct >= BOTTLING_MIN_ALCOHOL_PCT;
+  const maturityEligible = canMatureLot({ ...lot, physical });
   let { acidity, aroma, maturation, oak, lees } = physical;
 
-  if (canMature) {
+  if (maturityEligible) {
     const daysPerMaturityFactor = MATURATION_AGING_POTENTIAL_BASE
       + MATURATION_AGING_POTENTIAL_WEIGHT * clamp(lot.anchors.agingPotential);
     const step = MATURATION_PER_DAY_AT_REFERENCE * warmth / daysPerMaturityFactor;
@@ -53,14 +57,10 @@ function advanceOneDay(lot: PhysicalLot, physical: PhysicalState, environment: W
     }
     acidity = clamp(acidity * (1 - ACID_SOFTENING_PER_MATURITY * step));
 
-    // Early integration can release only inherited capacity not yet expressed. It never
-    // repairs damage after the release window or creates aroma beyond the raw baseline.
-    const releaseWindow = clamp(1 - previousMaturity / AROMA_RELEASE_END_MATURITY);
-    const availableAroma = Math.max(0, lot.anchors.aromatics - aroma);
-    const release = Math.min(availableAroma,
-      lot.anchors.aromatics * AROMA_RELEASE_PER_MATURITY * step * releaseWindow * (1 - clamp(physical.oxidation)));
+    // Harvest starts with all modeled aroma present. A gap to the inherited anchor
+    // represents loss, not an unreleased reservoir, even after blending younger wine.
     const declineStep = Math.max(0, maturation - Math.max(previousMaturity, AROMA_DECLINE_START_MATURITY));
-    aroma = clamp((aroma + release) * Math.max(0, 1 - AROMA_DECLINE_PER_MATURITY
+    aroma = clamp(aroma * Math.max(0, 1 - AROMA_DECLINE_PER_MATURITY
       * declineStep * (1 + OXIDATION_AROMA_DECLINE_WEIGHT * clamp(physical.oxidation))));
 
     if (lot.form !== 'bottled') {

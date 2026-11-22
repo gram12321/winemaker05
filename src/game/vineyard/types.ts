@@ -42,8 +42,13 @@ export interface Vineyard {
   readonly cropYear: number;
   readonly ripeness: number;
   readonly condition: number;
+  /** Total crop produced this year, including fruit already harvested or lost. */
   readonly cropKg: number;
   readonly harvestedKg: number;
+  /** Cumulative damage to fruit that was still on the vine. */
+  readonly lostKg: number;
+  /** Ripe fruit still on the vine; the remaining standing fruit is unripe. */
+  readonly ripeKg: number;
   readonly rot: number;
   readonly nobleRot: number;
 }

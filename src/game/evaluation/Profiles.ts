@@ -83,7 +83,7 @@ export const STRUCTURE_TARGET_BASES = {
     aroma: { midpoint: 0.72, width: 0.42, weight: 1.1 },
     body: { midpoint: 0.46, width: 0.42, weight: 0.95 },
     spice: { midpoint: 0.45, width: 0.42, weight: 0.9 },
-    sweetness: { midpoint: 0.28, width: 0.18, weight: 0.7 },
+    sweetness: { midpoint: 0.1, width: 0.2, weight: 0.7 },
     tannins: { midpoint: 0.45, width: 0.4, weight: 1.05 },
   },
   tempranillo: {
@@ -91,7 +91,7 @@ export const STRUCTURE_TARGET_BASES = {
     aroma: { midpoint: 0.65, width: 0.42, weight: 1.05 },
     body: { midpoint: 0.68, width: 0.4, weight: 1.1 },
     spice: { midpoint: 0.67, width: 0.42, weight: 1.0 },
-    sweetness: { midpoint: 0.37, width: 0.4, weight: 0.8 },
+    sweetness: { midpoint: 0.16, width: 0.24, weight: 0.8 },
     tannins: { midpoint: 0.7, width: 0.4, weight: 1.2 },
   },
   'sauvignon-blanc': {
@@ -99,7 +99,7 @@ export const STRUCTURE_TARGET_BASES = {
     aroma: { midpoint: 0.84, width: 0.4, weight: 1.2 },
     body: { midpoint: 0.4, width: 0.42, weight: 0.8 },
     spice: { midpoint: 0.39, width: 0.42, weight: 0.75 },
-    sweetness: { midpoint: 0.25, width: 0.4, weight: 0.7 },
+    sweetness: { midpoint: 0.12, width: 0.22, weight: 0.7 },
     tannins: { midpoint: 0.35, width: 0.4, weight: 0.75 },
   },
   chardonnay: {
@@ -107,7 +107,7 @@ export const STRUCTURE_TARGET_BASES = {
     aroma: { midpoint: 0.71, width: 0.42, weight: 1.0 },
     body: { midpoint: 0.64, width: 0.4, weight: 1.05 },
     spice: { midpoint: 0.48, width: 0.42, weight: 0.85 },
-    sweetness: { midpoint: 0.32, width: 0.4, weight: 0.75 },
+    sweetness: { midpoint: 0.14, width: 0.24, weight: 0.75 },
     tannins: { midpoint: 0.42, width: 0.42, weight: 0.9 },
   },
 } as const satisfies BaseTargets<StructureAxis>;
@@ -169,6 +169,36 @@ function formatShift(value: number): string {
   return `${shown >= 0 ? '+' : ''}${shown.toFixed(3)}`;
 }
 
+function describeShiftLimits(
+  requestedShift: number,
+  budgetedShift: number,
+  appliedShift: number,
+  domainBoundedRequest: number,
+  width: number,
+): string {
+  const budgetLimited = Math.abs(requestedShift - budgetedShift) > 0.0005;
+  const rangeLimited = Math.abs(requestedShift - domainBoundedRequest) > 0.0005;
+  if (!budgetLimited && !rangeLimited) {
+    return ` (requested ${formatShift(requestedShift)}; final displacement ${formatShift(appliedShift)})`;
+  }
+
+  const limits: string[] = [];
+  if (budgetLimited) {
+    limits.push(
+      `axis movement budget +/-${TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis.toFixed(3)} `
+        + `limits the combined shift to ${formatShift(budgetedShift)}`,
+    );
+  }
+  if (rangeLimited) {
+    limits.push(
+      `target-center bounds [${format(width / 2)}, ${format(1 - width / 2)}] `
+        + `cap the unbudgeted request at ${formatShift(domainBoundedRequest)}`,
+    );
+  }
+  return ` (requested ${formatShift(requestedShift)}; ${limits.join('; ')}; `
+    + `final displacement ${formatShift(appliedShift)})`;
+}
+
 function compareText(left: string, right: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
 }
@@ -216,9 +246,10 @@ function validateAnchors(anchors: RawMaterialAnchors): void {
 }
 
 function profileSources(lot: PhysicalLot): readonly ProfileSource[] {
-  const suppliedSources = Array.isArray(lot.sources) && lot.sources.length > 0
-    ? [...lot.sources]
-    : [{ origin: lot.origin, anchors: lot.anchors, fraction: 1 }];
+  if (!Array.isArray(lot.sources) || lot.sources.length === 0) {
+    throw new RangeError('Profile evaluation requires at least one source.');
+  }
+  const suppliedSources = [...lot.sources];
 
   for (const source of suppliedSources) {
     if (!source || typeof source !== 'object' || !source.origin || !source.anchors
@@ -365,15 +396,18 @@ function buildContextualTargets<Axis extends string>(input: {
       const base = varietyBases[axis];
       const capacity = capacityFor(axis, source.anchors);
       const contextShift = (capacity.value - 0.5) * capacityInfluence[axis];
+      const unshiftedRange = boundedRange(base.midpoint, base.width);
       const range = boundedRange(base.midpoint + contextShift, base.width);
 
       return {
         source,
+        unshiftedMidpoint: unshiftedRange.midpoint,
         midpoint: range.midpoint,
         width: range.high - range.low,
         weight: base.weight,
         capacity,
         contextShift,
+        appliedContextShift: range.midpoint - unshiftedRange.midpoint,
         configuredWidth: base.width,
       };
     });
@@ -384,31 +418,54 @@ function buildContextualTargets<Axis extends string>(input: {
     const baselineMidpoint = weightedMean(contribution => contribution.midpoint);
     const baselineWidth = weightedMean(contribution => contribution.width);
     const weight = weightedMean(contribution => contribution.weight);
+    const sourceWeightedBase = boundedRange(
+      weightedMean(contribution => contribution.unshiftedMidpoint),
+      baselineWidth,
+    );
     const baseline = boundedRange(baselineMidpoint, baselineWidth);
+    const appliedContextShift = baseline.midpoint - sourceWeightedBase.midpoint;
 
     const axisInteractions = interactions.filter(interaction => interaction.targetAxis === axis);
-    const requestedShift = axisInteractions.reduce((total, interaction) => total + interaction.amount, 0);
-    const cappedShift = clamp(
-      requestedShift,
+    const requestedInteractionShift = axisInteractions.reduce((total, interaction) => total + interaction.amount, 0);
+    const requestedTotalShift = appliedContextShift + requestedInteractionShift;
+    const cappedTotalShift = clamp(
+      requestedTotalShift,
       -TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis,
       TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis,
     );
-    const finalRange = boundedRange(baseline.midpoint + cappedShift, baselineWidth);
-    const appliedShift = finalRange.midpoint - baseline.midpoint;
+    const domainBoundedRequest = boundedRange(
+      sourceWeightedBase.midpoint + requestedTotalShift,
+      baselineWidth,
+    ).midpoint - sourceWeightedBase.midpoint;
+    const finalRange = boundedRange(sourceWeightedBase.midpoint + cappedTotalShift, baselineWidth);
+    const appliedTotalShift = finalRange.midpoint - sourceWeightedBase.midpoint;
     const interactionDetails = axisInteractions.map(interaction => interaction.explanation);
-    const shiftReason = interactionDetails.length === 0
-      ? 'Applied cross-axis shift: +0.000; no interaction threshold was met.'
-      : `Applied cross-axis shift: ${formatShift(appliedShift)}${Math.abs(requestedShift - appliedShift) > 0.0005
-        ? ` (requested ${formatShift(requestedShift)}; bounded by the ±${format(TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis)} axis movement budget).`
-        : '.'} ${interactionDetails.join(' ')}`;
+    const crossAxisReason = axisInteractions.length === 0
+      ? 'Cross-axis movement: +0.000 requested; no interaction threshold was met.'
+      : `Cross-axis movement: ${formatShift(requestedInteractionShift)} requested. ${interactionDetails.join(' ')}`;
+    const shiftReason = `${crossAxisReason} Source-anchor context movement from the source-weighted base is `
+      + `${formatShift(appliedContextShift)}. Combined target displacement from that base is `
+      + `${formatShift(appliedTotalShift)}${describeShiftLimits(
+        requestedTotalShift,
+        cappedTotalShift,
+        appliedTotalShift,
+        domainBoundedRequest,
+        baselineWidth,
+      )}.`;
     const baselineDetails = contributions.map(contribution => {
       const capacityLabel = contribution.capacity.label;
       const widthNote = Math.abs(contribution.configuredWidth - contribution.width) > 0.0005
         ? `, configured width ${format(contribution.configuredWidth)} bounded to ${format(contribution.width)}`
         : `, width ${format(contribution.width)}`;
+      const contextShiftNote = Math.abs(contribution.contextShift - contribution.appliedContextShift) > 0.0005
+        ? `${capacityLabel} ${format(contribution.capacity.value)} requests center shift ${formatShift(contribution.contextShift)}; `
+          + `target-center bounds [${format(contribution.width / 2)}, ${format(1 - contribution.width / 2)}] `
+          + `limit the applied shift to ${formatShift(contribution.appliedContextShift)}`
+        : `${capacityLabel} ${format(contribution.capacity.value)} shifts center ${formatShift(contribution.appliedContextShift)}`;
       return `${GRAPE_NAMES[contribution.source.origin.grapeId]} ${format(contribution.source.fraction * 100)}% `
-        + `(center ${format(contribution.midpoint)}${widthNote}, weight ${format(contribution.weight)}, `
-        + `${capacityLabel} ${format(contribution.capacity.value)} shifts center ${formatShift(contribution.contextShift)})`;
+        + `(base center ${format(contribution.unshiftedMidpoint)}, anchor-context center ${format(contribution.midpoint)}`
+        + `${widthNote}, weight ${format(contribution.weight)}, `
+        + `${contextShiftNote})`;
     });
 
     output[axis] = {
@@ -416,8 +473,9 @@ function buildContextualTargets<Axis extends string>(input: {
       high: finalRange.high,
       weight,
       reasons: [
-        `Baseline: source-weighted ${axis} target from ${baselineDetails.join('; ')}; `
-          + `combined range ${format(baseline.low)}–${format(baseline.high)} and weight ${format(weight)}.`,
+        `Baseline: source-weighted ${axis} target after anchor context from ${baselineDetails.join('; ')}; `
+          + `source-weighted base center ${format(sourceWeightedBase.midpoint)}, contextual range `
+          + `${format(baseline.low)}–${format(baseline.high)} and weight ${format(weight)}.`,
         shiftReason,
       ],
     };

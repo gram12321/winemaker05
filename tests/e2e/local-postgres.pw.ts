@@ -113,13 +113,13 @@ test.describe('browser through the local PostgreSQL authority', () => {
     for (let weeks = 0; weeks < 5 && !await page.getByRole('button', { name: 'Press grapes', exact: true }).isVisible(); weeks++) await advanceWeek(page);
     await page.getByLabel('Skin contact', { exact: true }).check();
     await page.getByRole('button', { name: 'Press grapes', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Start / configure fermentation', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start fermentation', exact: true })).toBeVisible();
     await page.getByLabel('Fermentation temperature (°C)', { exact: true }).fill('20');
     await page.getByLabel('Lees contact', { exact: true }).check();
-    await page.getByRole('button', { name: 'Start / configure fermentation', exact: true }).click();
+    await page.getByRole('button', { name: 'Start fermentation', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Update / restart fermentation', exact: true })).toBeVisible();
     for (let weeks = 0; weeks < 20 && await page.getByRole('button', { name: 'Update / restart fermentation', exact: true }).isVisible(); weeks++) await advanceWeek(page);
-    await expect(page.getByRole('button', { name: 'Start / configure fermentation', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Configure dry wine settings', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Cellar', exact: true }).click();
     await page.getByLabel('Number of bottles', { exact: true }).fill('100');
     await page.getByRole('button', { name: 'Bottle wine', exact: true }).click();

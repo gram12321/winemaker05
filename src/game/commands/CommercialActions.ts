@@ -21,8 +21,10 @@ export function commercialAction(state: CompanyState, command: GameCommand): Rul
       const paid = recordPayment(state, 'sale', quote.value.totalCents, `${command.bottles} bottles of ${lot.name} to ${customer.id}`);
       if (!paid.ok) return paid;
       const sale: Sale = { id: `sale-${paid.value.sequence}`, week: state.week, lotId: lot.id, buyerId: customer.id, bottles: command.bottles, revenueCents: quote.value.totalCents, contractId: null };
+      const commercial = recordSale(state.commercial, sale);
+      if (!commercial.ok) return commercial;
       const recorded = traceLot(lot, state.week, 'Sold', `${command.bottles} bottles sold to ${customer.id} for ${quote.value.totalCents} cents.`);
-      return success(archiveConsumedLots(replaceLot({ ...paid.value, sequence: paid.value.sequence + 1, inventory: consumed.value, commercial: recordSale(state.commercial, sale) }, recorded)));
+      return success(archiveConsumedLots(replaceLot({ ...paid.value, sequence: paid.value.sequence + 1, inventory: consumed.value, commercial: commercial.value }, recorded)));
     }
     case 'contract.accept': {
       const contract = state.commercial.contracts.find(c => c.id === command.contractId);
@@ -66,7 +68,9 @@ function fulfill(state: CompanyState, contractId: string): RuleResult<CompanySta
     const consumed = consume(inventory, lot.id, reservation.bottles, contract.id);
     if (!consumed.ok) return consumed;
     inventory = { ...consumed.value, reservations: consumed.value.reservations.filter(r => !(r.contractId === contract.id && r.lotId === lot.id)) };
-    commercial = recordSale(commercial, { id: `sale-${sequence++}`, week: state.week, lotId: lot.id, buyerId: contract.buyerId, bottles: reservation.bottles, revenueCents: contract.pricePerBottleCents * reservation.bottles, contractId: contract.id });
+    const recordedSale = recordSale(commercial, { id: `sale-${sequence++}`, week: state.week, lotId: lot.id, buyerId: contract.buyerId, bottles: reservation.bottles, revenueCents: contract.pricePerBottleCents * reservation.bottles, contractId: contract.id });
+    if (!recordedSale.ok) return recordedSale;
+    commercial = recordedSale.value;
     traced = replaceLot(traced, traceLot(lot, state.week, 'Contract delivery', `${reservation.bottles} bottles delivered under ${contract.id}.`));
   }
   const paid = recordPayment({ ...traced, sequence }, 'contract', contract.pricePerBottleCents * contract.bottles, `Delivered contract ${contract.id}`);

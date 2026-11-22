@@ -37,7 +37,7 @@ describe('vineyard rules', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.costCents).toBe(3_000_000);
-    expect(result.value.vineyard).toMatchObject({ id: 'block-1', name: 'North Block', cropYear: 2028, ripeness: 0, condition: 1, cropKg: 0, harvestedKg: 0 });
+    expect(result.value.vineyard).toMatchObject({ id: 'block-1', name: 'North Block', cropYear: 2028, ripeness: 0, condition: 1, cropKg: 0, harvestedKg: 0, lostKg: 0, ripeKg: 0 });
   });
 
   it('resolves identical deterministic weather for the same explicit game-time key', () => {
@@ -57,6 +57,8 @@ describe('vineyard rules', () => {
     expect(annualReset.cropYear).toBe(2029);
     expect(annualReset.cropKg).toBe(0);
     expect(annualReset.harvestedKg).toBe(0);
+    expect(annualReset.lostKg).toBe(0);
+    expect(annualReset.ripeKg).toBe(0);
     expect(annualReset.ripeness).toBe(0);
     expect(annualReset.rot).toBe(0);
     expect(annualReset.nobleRot).toBe(0);
@@ -65,6 +67,8 @@ describe('vineyard rules', () => {
     expect(repeatedBoundary.cropYear).toBe(2029);
     expect(repeatedBoundary.cropKg).toBe(0);
     expect(repeatedBoundary.harvestedKg).toBe(0);
+    expect(repeatedBoundary.lostKg).toBe(0);
+    expect(repeatedBoundary.ripeKg).toBe(0);
   });
 
   it('rejects early harvest and caps partial harvest at ripe, unspoiled crop without overdraw', () => {
@@ -72,20 +76,77 @@ describe('vineyard rules', () => {
     const rejected = harvestVineyard(early, 10);
     expect(rejected.ok).toBe(false);
 
-    const green = { ...early, ripeness: 0.5 };
-    const first = harvestVineyard(green, 50);
+    const green = { ...early, ripeness: 0.5, ripeKg: 24 };
+    const first = harvestVineyard(green, 10);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    expect(first.value.harvestedKg).toBe(24);
-    expect(first.value.vineyard.harvestedKg).toBe(24);
+    expect(first.value.harvestedKg).toBe(10);
+    expect(first.value.vineyard.ripeKg).toBe(14);
+    const second = harvestVineyard(first.value.vineyard, 50);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.harvestedKg).toBe(14);
+    expect(second.value.vineyard.harvestedKg).toBe(24);
+    expect(harvestVineyard(second.value.vineyard, 1).ok).toBe(false);
 
-    const late = { ...green, ripeness: 1, rot: 0.3, nobleRot: 0 };
+    const late = { ...green, ripeness: 1, rot: 0.3, nobleRot: 0, lostKg: 30, ripeKg: 70 };
     const capped = harvestVineyard(late, 500);
     expect(capped.ok).toBe(true);
     if (!capped.ok) return;
     expect(capped.value.harvestedKg).toBe(70);
     expect(capped.value.vineyard.harvestedKg).toBe(70);
     expect(capped.value.vineyard.harvestedKg).toBeLessThanOrEqual(capped.value.vineyard.cropKg);
+  });
+
+  it('ripens only the fruit still on the vine after a partial harvest', () => {
+    const initial = { ...makeVineyard(), areaHa: 0.02, cropKg: 100, ripeness: 0.5, ripeKg: 24 };
+    const harvested = harvestVineyard(initial, 24);
+    if (!harvested.ok) throw new Error(harvested.reason);
+    const after = advanceVineyard(harvested.value.vineyard, CLEAR_WEATHER, calendarForWeek(19), false);
+    expect(after.cropKg).toBe(100);
+    expect(after.harvestedKg).toBe(24);
+    expect(after.lostKg).toBe(0);
+    expect(after.ripeKg).toBeGreaterThan(0);
+    expect(after.ripeKg).toBeLessThan(76);
+    expect(harvestVineyard(after, after.ripeKg).ok).toBe(true);
+  });
+
+  it('applies only new rot to standing fruit and never damages an earlier harvest again', () => {
+    const initial = { ...makeVineyard(), areaHa: 0.02, cropKg: 100, ripeness: 1, ripeKg: 100, rot: 0.4 };
+    const harvested = harvestVineyard(initial, 70);
+    if (!harvested.ok) throw new Error(harvested.reason);
+    const rain = { temperatureC: 5, rainMm: 33, humidity: 0.9 };
+    const damaged = advanceVineyard(harvested.value.vineyard, rain, calendarForWeek(19), false);
+    expect(damaged).toMatchObject({ cropKg: 100, harvestedKg: 70, lostKg: 1.05, ripeKg: 28.95 });
+    const dry = advanceVineyard(damaged, CLEAR_WEATHER, calendarForWeek(19), false);
+    expect(dry).toMatchObject({ cropKg: 100, harvestedKg: 70, lostKg: 1.05, ripeKg: 28.95 });
+    const remaining = harvestVineyard(dry, 100);
+    if (!remaining.ok) throw new Error(remaining.reason);
+    expect(remaining.value.harvestedKg).toBe(28.95);
+    expect(remaining.value.vineyard.harvestedKg).toBe(98.95);
+    expect(remaining.value.vineyard.harvestedKg + remaining.value.vineyard.lostKg).toBeCloseTo(remaining.value.vineyard.cropKg, 3);
+  });
+
+  it('retains gram precision through loss and partial harvest', () => {
+    const initial = { ...makeVineyard(), areaHa: 0.02, cropKg: 0.003, ripeness: 1, ripeKg: 0.003, harvestedKg: 0, lostKg: 0 };
+    const first = harvestVineyard(initial, 0.0019);
+    if (!first.ok) throw new Error(first.reason);
+    expect(first.value.harvestedKg).toBe(0.001);
+    const last = harvestVineyard(first.value.vineyard, 0.1);
+    if (!last.ok) throw new Error(last.reason);
+    expect(last.value.harvestedKg).toBe(0.002);
+    expect(last.value.vineyard).toMatchObject({ cropKg: 0.003, harvestedKg: 0.003, lostKg: 0, ripeKg: 0 });
+  });
+
+  it('makes higher drainage more drought-prone and less vulnerable to excess rain', () => {
+    const lowDrainage = { ...makeVineyard('riverbend'), condition: 0.7 };
+    const highDrainage = { ...makeVineyard('hillside'), condition: 0.7 };
+    const drought = { temperatureC: 19, rainMm: 0, humidity: 0.4 };
+    const wet = { temperatureC: 19, rainMm: 40, humidity: 0.9 };
+    expect(advanceVineyard(highDrainage, drought, calendarForWeek(1), false).condition)
+      .toBeLessThan(advanceVineyard(lowDrainage, drought, calendarForWeek(1), false).condition);
+    expect(advanceVineyard(highDrainage, wet, calendarForWeek(1), false).condition)
+      .toBeGreaterThan(advanceVineyard(lowDrainage, wet, calendarForWeek(1), false).condition);
   });
 
   it('changes crop and ripening response across selected grape-site combinations', () => {
@@ -97,7 +158,8 @@ describe('vineyard rules', () => {
   });
 
   it('does not mutate vineyard or weather inputs', () => {
-    const vineyard = Object.freeze({ ...matureFirstYear(), harvestedKg: 5 });
+    const mature = matureFirstYear();
+    const vineyard = Object.freeze({ ...mature, harvestedKg: 5, ripeKg: mature.ripeKg - 5 });
     const weather = Object.freeze({ ...CLEAR_WEATHER });
     const originalVineyard = { ...vineyard };
     const originalWeather = { ...weather };

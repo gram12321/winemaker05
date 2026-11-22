@@ -1,7 +1,7 @@
 import { planCalendarAdvance } from '../calendar/Calendar';
 import { readCompanyState, type CompanyState } from '../core/CompanyState';
 import type { CommandDecision, DomainEvent } from '../core/Results';
-import { DAYS_PER_WEEK } from '../core/Numbers';
+import { DAYS_PER_WEEK, MAX_SNAPSHOT_TEXT_LENGTH } from '../core/Numbers';
 import { advanceVineyard, harvestVineyard, resolveWeather } from '../vineyard/Rules';
 import { GRAPES } from '../vineyard/Catalog';
 import { createWineOrigin } from '../vineyard/Origin';
@@ -13,6 +13,26 @@ import { ageVessels } from '../equipment/Rules';
 import { payWeeklyWages } from '../finance/Rules';
 import { advanceContracts, createContractOffers } from '../commercial/Rules';
 import { traceLot } from '../commands/Transactions';
+
+function developmentHistorySegments(causes: readonly string[]): readonly string[] {
+  if (causes.length === 0) return ['Continued development under the current storage conditions.'];
+  const segments: string[] = [];
+  let current = '';
+  for (const cause of causes) {
+    if (cause.length > MAX_SNAPSHOT_TEXT_LENGTH) {
+      throw new RangeError('A development cause exceeds the supported history text length.');
+    }
+    const combined = current ? `${current} ${cause}` : cause;
+    if (combined.length > MAX_SNAPSHOT_TEXT_LENGTH) {
+      segments.push(current);
+      current = cause;
+    } else {
+      current = combined;
+    }
+  }
+  if (current) segments.push(current);
+  return Object.freeze(segments);
+}
 
 /** Produce an independent candidate and event; the authority decides whether to commit it. */
 export function advanceTime(state: CompanyState): CommandDecision {
@@ -27,13 +47,9 @@ export function advanceTime(state: CompanyState): CommandDecision {
   // One candidate: nothing here performs I/O or publishes a partial phase.
   const weather = resolveWeather(planned.next, week);
   let vineyards = current.estate.vineyards.map(v => advanceVineyard(v, weather, planned.next, planned.interval.crossedYear));
-  const harvestable = new Map(vineyards.map(v => {
-    const available = harvestVineyard(v, Math.max(0, v.cropKg - v.harvestedKg));
-    return [v.id, available.ok ? available.value.harvestedKg : 0];
-  }));
   const work = progressHarvestWork(
     { ...current.work, activities: planned.interval.crossedYear ? [] : current.work.activities },
-    vineyards, weather, harvestStorageFreeG(current.inventory) / 1000, harvestable,
+    vineyards, weather, harvestStorageFreeG(current.inventory) / 1000,
     current.finance.wageArrearsCents > 0,
   );
   const lots = current.winery.lots.map(lot => {
@@ -41,7 +57,8 @@ export function advanceTime(state: CompanyState): CommandDecision {
     const vessel = current.equipment.vessels.find(v => v.id === holding.vesselId) ?? null;
     const occupied = vessel ? current.inventory.holdings.filter(h => h.vesselId === vessel.id).reduce((sum, h) => sum + h.quantity, 0) : 0;
     const developed = developStoredLot({ lot, holding, vessel, cellarTemperatureC: current.equipment.cellarTemperatureC, occupiedMl: occupied, days: DAYS_PER_WEEK });
-    return traceLot(developed.lot, week, 'Development', developed.causes.join(' ').slice(0, 500) || 'Continued development under the current storage conditions.');
+    return developmentHistorySegments(developed.causes)
+      .reduce((next, detail) => traceLot(next, week, 'Development', detail), developed.lot);
   });
   const holdings = [...current.inventory.holdings];
   let sequence = current.sequence;

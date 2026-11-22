@@ -6,9 +6,11 @@ Status: active implementation choices under the user's core-loop authorization. 
 
 - Company assembles `calendar`, `estate`, `winery`, `inventory`, `equipment`, `work`, `finance`, `commercial`, `week` (elapsed weeks starting 0), and `sequence` (next deterministic entity suffix).
 - Vineyard types own four individually selected prototype varieties (Pinot Noir, Tempranillo, Sauvignon Blanc, Chardonnay), three prototype sites and growing crop/health/ripeness. Equipment owns individual steel/oak/concrete vessels; inventory owns their occupancy through a holding's `vesselId`.
+- Vineyard crop accounting uses gram-precision kilograms: `cropKg` is total produced, `harvestedKg` is removed fruit, `lostKg` is cumulative standing-crop loss, and `ripeKg` is ripe fruit still on the vine. Unripe standing fruit is the remainder. New rot damages only standing fruit; subsequent ripening moves only unripe fruit. Inventory owns fruit after harvest.
 - One physical vessel holds one coherent live liquid lot. Press/transfer/split require an empty destination; blending can reuse a source vessel after explicitly consuming its input lots. Capacity alone does not permit two independent developing wine states to silently share a container. Inventory owns this allocation rule; the schema checks it too.
 - A `PhysicalLot` stores concentrations/normalized capacities, form, immutable origin/anchors, lineage, process settings, history and a nullable historical bottling assessment. No amount/placement on the lot. Inventory owns exactly one positive holding per live lot. Amounts are integer grams for grapes, integer ml for must/wine, integer 750-ml bottle counts for bottled wine. Every independently developing portion has its own lot ID.
-- `PhysicalState` units: sugar g/L; alcohol percent; age days integer; oxygenExposure and maturation nonnegative; other dimensions normalized 0..1. Raw anchors use sugar g/L and normalized dimensions. Fermentation must conserve consumed sugar to alcohol with a named yield, extraction cannot exceed inherited phenolic capacity, maturation is allowed above 1 to support decline.
+- `PhysicalState` units: sugar g/L; alcohol percent; elapsed lot age and wine-development age in integer days; oxygenExposure and maturation nonnegative; other dimensions normalized 0..1. Wine-development age advances only while the lot meets the same physical eligibility as maturation; it is never greater than elapsed lot age. Raw anchors use sugar g/L and normalized dimensions. Fermentation must conserve consumed sugar to alcohol with a named yield, extraction cannot exceed inherited phenolic capacity, maturation is allowed above 1 to support decline.
+- Harvest starts with the currently modeled aroma expressed; no separate unreleased aromatic reservoir exists. Lost aroma therefore cannot be recreated from the gap to its immutable anchor. Validate retained one-parent provenance and blend source identities, without inventing parent contribution amounts that the model does not store.
 - `WineEnvironment` contains actual temperature, oxygen ingress, oak strength and contamination pressure; resolve from holdings + equipment, not persisted twice on wine. Process temperature is a controlled fermentation choice; cellar temperature applies outside active fermentation.
 - Environment scales: Celsius temperature; `oxygenIngress` normalized exposure units/day (typical provisional baselines steel0.0008, oak0.006, concrete0.003, bottle0.0002 before headspace/condition effects); oakStrength and contaminationRisk are normalized0..1. Risk accumulation owns temperature effects on faults. Fermentation must respond to actual Celsius, never merely closeness to the player's requested temperature. Stall yeast threshold is0.08, below the0.24 restart floor.
 - All outputs are plain JSON, readonly at public boundaries. Root performs current-schema validation and deep copying/freezing. No undefined persisted fields or compatibility defaults for older saves.
@@ -32,7 +34,7 @@ Status: active implementation choices under the user's core-loop authorization. 
 Exact integration signatures now required by primary code:
 
 ```ts
-developLot(lot: PhysicalLot, environment: WineEnvironment, days: number): { lot: PhysicalLot; causes: readonly string[] };
+developLot(lot: PhysicalLot, environment: WineEnvironment | ((lot: PhysicalLot) => WineEnvironment), days: number): { lot: PhysicalLot; causes: readonly string[] };
 resolveWineEnvironment(lot: PhysicalLot, holding: Holding, vessel: Vessel | null, cellarTemperatureC: number, occupiedMl?: number): WineEnvironment;
 vesselPurchase(input: { id: string; material: VesselMaterial; capacityLitres: number }): RuleResult<{ vessel: Vessel; costCents: number }>;
 vesselCapacityFreeMl(vessel: Vessel, holdings: readonly Holding[], exceptLotIds?: readonly string[]): number;
@@ -46,7 +48,7 @@ advanceContracts(state: CommercialState, week: number): CommercialState;
 acceptContract(contract: WineContract, week: number): RuleResult<WineContract>;
 quoteWine(lot: PhysicalLot, assessment: WineAssessment, buyerId: BuyerId, relationship: number, bottles: number): RuleResult<{ pricePerBottleCents: number; totalCents: number; reasons: readonly string[] }>;
 contractEligibility(contract: WineContract, lot: PhysicalLot, assessment: WineAssessment, bottles: number, week: number): { eligible: boolean; reasons: readonly string[] };
-recordSale(state: CommercialState, sale: Sale): CommercialState;
+recordSale(state: CommercialState, sale: Sale): RuleResult<CommercialState>;
 ```
 
 Root integrates current-schema validation, finances, work allocation, command reader/router, inventory transactions, ordered weekly tick and queries. Additional agents own UI, scenario tests and independent review when dispatched. UI consumes queries and sends commands; business rules stay in `src/game`.
@@ -56,7 +58,7 @@ Further exact APIs for remaining coding briefs:
 ```ts
 evaluateProfile(values: Readonly<Record<string, number>>, targets: TargetProfile): ProfileAssessment;
 deriveStructure(lot: PhysicalLot): StructureProfile;
-deriveTaste(lot: PhysicalLot): { families: TasteProfile; descriptors: readonly string[] };
+deriveTaste(lot: PhysicalLot): { families: TasteProfile; descriptors: readonly string[]; development: WineDevelopmentProjection };
 structureTargets(lot: PhysicalLot, profile: StructureProfile): TargetProfile;
 tasteTargets(lot: PhysicalLot, profile: TasteProfile): TargetProfile;
 diagnoseWine(lot: PhysicalLot): readonly WineFault[];
@@ -68,7 +70,7 @@ maturityOutlook(lot: PhysicalLot): { label: 'Developing' | 'In maturity window' 
 
 Physical field responsibilities within the single development entry point: fermentation/extraction owns sugar, alcohol, yeast, expressed/remaining phenolics, active-process completion and ageDays; maturation owns acidity, aroma, maturation, oak and lees; risks owns cumulative oxygenExposure, oxidation, rot and greenCharacter. Helpers receive the updated lot sequentially and preserve other fields. Suggested canonical daily order: fermentation/extraction, maturation, risk, age increment. No helper persists independently. The engine alone returns one consolidated lot and cause strings. All assessments and bottling snapshots use scores 0..1. Reuse bottling/fermentable sugar thresholds from wine/Operations.ts (currently 4g/L).
 
-`simulation/DevelopStoredLot.ts` re-resolves environment each day and calls the same `developLot(...,1)` engine. This handles fermentation finishing mid-week: later days use cellar temperature rather than retaining the old fermentation setpoint. Both live weekly advancement and forecasts use this helper. `Development.describeDevelopment(before,after)` supplies the aggregate physical-change summary without duplicating numeric rules in orchestration.
+`simulation/DevelopStoredLot.ts` supplies a pure daily environment resolver to the same `developLot` engine. This handles fermentation finishing mid-week: later days use cellar temperature rather than retaining the old fermentation setpoint. Both live weekly advancement and forecasts use this helper. The engine summarizes observed changes with the conditions actually resolved on affected days; the weekly transition packs complete causes into bounded history entries.
 
 Risk diagnostic codes used by queries: `stuck-fermentation` for active conversion with remaining sugar and insufficient yeast; use `oxidation`, `spoilage`, `green-character` for other physical diagnoses. Risk owns severity thresholds and `hasSeverePhysicalFault`; maturation owns maturity-window thresholds and outlook labels, so cellar queries do not duplicate the process rules.
 

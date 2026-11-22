@@ -1,7 +1,7 @@
 import { clamp, failure, success, type RuleResult } from '../core/Numbers';
 import type { CalendarState } from '../calendar/Calendar';
 import { GRAPES, SITES } from './Catalog';
-import { terroirPotential } from './Origin';
+import { landValueCents, terroirPotential } from './Origin';
 import type { GrapeId, SiteId, Vineyard, Weather } from './types';
 
 export const MAX_VINEYARD_AREA_HA = 100;
@@ -38,6 +38,37 @@ function roundKg(value: number): number {
 
 function floorKgToGram(value: number): number {
   return Math.floor((value + 1e-9) * KG_PRECISION) / KG_PRECISION;
+}
+
+function grams(value: number): number {
+  return Math.round(value * KG_PRECISION);
+}
+
+export function isGramQuantity(value: number): boolean {
+  const scaled = value * KG_PRECISION;
+  return Number.isFinite(value) && value >= 0 && Number.isSafeInteger(Math.round(scaled))
+    && Math.abs(scaled - Math.round(scaled)) <= 1e-6;
+}
+
+/** Validate the current crop ledger, independently of its containing snapshot. */
+export function isVineyardCropStateValid(vineyard: Vineyard): boolean {
+  if (![vineyard.cropKg, vineyard.harvestedKg, vineyard.lostKg, vineyard.ripeKg].every(isGramQuantity)
+    || !Number.isFinite(vineyard.ripeness) || vineyard.ripeness < 0 || vineyard.ripeness > 1
+    || !Number.isFinite(vineyard.rot) || vineyard.rot < 0 || vineyard.rot > 1
+    || !Number.isFinite(vineyard.nobleRot) || vineyard.nobleRot < 0 || vineyard.nobleRot > 1) return false;
+  return grams(vineyard.harvestedKg) + grams(vineyard.lostKg) + grams(vineyard.ripeKg) <= grams(vineyard.cropKg)
+    && (vineyard.ripeness >= MINIMUM_HARVEST_RIPENESS || vineyard.ripeKg === 0);
+}
+
+/** Standing includes both ripe and unripe fruit and excludes all past harvests and losses. */
+export function standingCropKg(vineyard: Vineyard): number {
+  return (grams(vineyard.cropKg) - grams(vineyard.harvestedKg) - grams(vineyard.lostKg)) / KG_PRECISION;
+}
+
+function ripeFraction(ripeness: number): number {
+  if (ripeness < MINIMUM_HARVEST_RIPENESS) return 0;
+  const progress = clamp((ripeness - MINIMUM_HARVEST_RIPENESS) / (1 - MINIMUM_HARVEST_RIPENESS));
+  return EARLY_RIPE_FRACTION + (1 - EARLY_RIPE_FRACTION) * progress;
 }
 
 function finiteOr(value: number, fallback: number): number {
@@ -134,7 +165,7 @@ export function createVineyard(input: {
 
   const siteId = input.siteId as SiteId;
   const grapeId = input.grapeId as GrapeId;
-  const costCents = Math.round(input.areaHa * SITES[siteId].pricePerHaCents);
+  const costCents = landValueCents(SITES[siteId], input.areaHa);
   if (!Number.isSafeInteger(costCents) || costCents <= 0) return failure('Vineyard purchase cost is outside the supported range.');
 
   const vineyard: Vineyard = Object.freeze({
@@ -149,6 +180,8 @@ export function createVineyard(input: {
     condition: 1,
     cropKg: 0,
     harvestedKg: 0,
+    lostKg: 0,
+    ripeKg: 0,
     rot: 0,
     nobleRot: 0,
   });
@@ -176,7 +209,7 @@ export function advanceVineyard(
   const heatStress = Math.max(0, (safeWeather.temperatureC - grape.preferredTemperatureC - 6) / 12);
   const wetStress = Math.max(0, safeWeather.rainMm - 24) / 48
     * safeWeather.humidity * (1 - site.drainage);
-  const dryStress = safeWeather.rainMm < 3 && safeWeather.humidity < 0.48 ? (0.48 - safeWeather.humidity) * (1 - site.drainage) : 0;
+  const dryStress = safeWeather.rainMm < 3 && safeWeather.humidity < 0.48 ? (0.48 - safeWeather.humidity) * site.drainage : 0;
   const condition = clamp(
     currentCondition + VINE_CONDITION_RECOVERY_PER_WEEK - 0.012 * coldStress - 0.014 * heatStress - 0.025 * wetStress - 0.018 * dryStress,
     MINIMUM_VINE_CONDITION,
@@ -190,17 +223,20 @@ export function advanceVineyard(
   const growthWeatherFit = temperatureFit(safeWeather.temperatureC, grape.preferredTemperatureC);
   const targetCropKg = roundKg(maxCropKg * growthProgress * growthWeatherFit * condition);
   const previousCropKg = newCropYear ? 0 : Math.max(0, finiteOr(vineyard.cropKg, 0));
-  const cropKg = roundKg(Math.min(maxCropKg, Math.max(previousCropKg, targetCropKg)));
+  const cropKg = roundKg(Math.max(previousCropKg, Math.min(maxCropKg, targetCropKg)));
 
-  let ripeness = newCropYear ? 0 : clamp(finiteOr(vineyard.ripeness, 0));
+  const previousRipeness = newCropYear ? 0 : clamp(finiteOr(vineyard.ripeness, 0));
+  let ripeness = previousRipeness;
   if (cropKg > 0 && progress >= RIPENING_START_OF_YEAR) {
     const warmthFit = clamp((safeWeather.temperatureC + 2) / (grape.preferredTemperatureC + 2), 0.55, 1.12);
     const exposureFit = 0.84 + site.sunlight * 0.18;
     ripeness = clamp(ripeness + RIPENING_RATE_PER_WEEK * warmthFit * exposureFit);
   }
 
-  let rot = newCropYear ? 0 : clamp(finiteOr(vineyard.rot, 0));
-  let nobleRot = newCropYear ? 0 : clamp(finiteOr(vineyard.nobleRot, 0));
+  const previousRot = newCropYear ? 0 : clamp(finiteOr(vineyard.rot, 0));
+  const previousNobleRot = newCropYear ? 0 : clamp(finiteOr(vineyard.nobleRot, 0));
+  let rot = previousRot;
+  let nobleRot = previousNobleRot;
   if (ripeness >= ROT_START_RIPENESS && safeWeather.humidity >= 0.82 && safeWeather.rainMm >= 18) {
     const nobleConditions = ripeness >= NOBLE_ROT_START_RIPENESS
       && safeWeather.temperatureC >= 12 && safeWeather.temperatureC <= 24
@@ -211,14 +247,35 @@ export function advanceVineyard(
     rot = clamp(rot + 0.012, 0, 0.8);
   }
 
-  const harvestedKg = newCropYear ? 0 : roundKg(Math.max(0, finiteOr(vineyard.harvestedKg, 0)));
+  // Move only still-standing unripe fruit through the changed ripeness curve. New
+  // production enters the curve at this week's ripeness; previously harvested or
+  // lost fruit can neither ripen again nor be damaged again.
+  const harvestedGrams = newCropYear ? 0 : grams(vineyard.harvestedKg);
+  const lostGrams = newCropYear ? 0 : grams(vineyard.lostKg);
+  const previousRipeGrams = newCropYear ? 0 : grams(vineyard.ripeKg);
+  const previousUnripeGrams = grams(previousCropKg) - harvestedGrams - lostGrams - previousRipeGrams;
+  const newCropGrams = grams(cropKg) - grams(previousCropKg);
+  const previousRipeFraction = ripeFraction(previousRipeness);
+  const currentRipeFraction = ripeFraction(ripeness);
+  const ripenedShare = currentRipeFraction === 1 ? 1
+    : previousRipeFraction === 1 ? 0
+      : (currentRipeFraction - previousRipeFraction) / (1 - previousRipeFraction);
+  const standingRipeGrams = previousRipeGrams + Math.round(previousUnripeGrams * ripenedShare)
+    + Math.round(newCropGrams * currentRipeFraction);
+  const standingGrams = grams(cropKg) - harvestedGrams - lostGrams;
+  const effectiveRot = clamp(rot - nobleRot * 0.25);
+  const previousEffectiveRot = clamp(previousRot - previousNobleRot * 0.25);
+  const damageGrams = Math.min(standingGrams, Math.round(standingGrams * Math.max(0, effectiveRot - previousEffectiveRot)));
+  const ripeDamageGrams = standingGrams > 0 ? Math.round(damageGrams * standingRipeGrams / standingGrams) : 0;
   return Object.freeze({
     ...vineyard,
     cropYear,
     ripeness,
     condition,
     cropKg,
-    harvestedKg: Math.min(cropKg, harvestedKg),
+    harvestedKg: harvestedGrams / KG_PRECISION,
+    lostKg: (lostGrams + damageGrams) / KG_PRECISION,
+    ripeKg: (standingRipeGrams - ripeDamageGrams) / KG_PRECISION,
     rot,
     nobleRot,
   });
@@ -233,13 +290,7 @@ export function harvestVineyard(vineyard: Vineyard, requestedKg: number): RuleRe
   if (typeof requestedKg !== 'number' || !Number.isFinite(requestedKg) || requestedKg <= 0) {
     return failure('Requested harvest must be a positive finite quantity.');
   }
-  if (
-    !Number.isFinite(vineyard.ripeness) || vineyard.ripeness < 0 || vineyard.ripeness > 1
-    || !Number.isFinite(vineyard.cropKg) || vineyard.cropKg < 0
-    || !Number.isFinite(vineyard.harvestedKg) || vineyard.harvestedKg < 0 || vineyard.harvestedKg > vineyard.cropKg
-    || !Number.isFinite(vineyard.rot) || vineyard.rot < 0 || vineyard.rot > 1
-    || !Number.isFinite(vineyard.nobleRot) || vineyard.nobleRot < 0 || vineyard.nobleRot > 1
-  ) {
+  if (!isVineyardCropStateValid(vineyard)) {
     return failure('Vineyard crop state must contain valid finite quantities and bounded condition values.');
   }
   if (vineyard.ripeness < MINIMUM_HARVEST_RIPENESS) {
@@ -249,19 +300,13 @@ export function harvestVineyard(vineyard: Vineyard, requestedKg: number): RuleRe
   const requestedKgAtGramPrecision = floorKgToGram(requestedKg);
   if (requestedKgAtGramPrecision <= 0) return failure('Requested harvest must include at least one gram.');
 
-  const cropKg = Math.max(0, floorKgToGram(finiteOr(vineyard.cropKg, 0)));
-  const harvestedSoFarKg = Math.min(cropKg, Math.max(0, floorKgToGram(finiteOr(vineyard.harvestedKg, 0))));
-  const ripeProgress = clamp((clamp(vineyard.ripeness) - MINIMUM_HARVEST_RIPENESS) / (1 - MINIMUM_HARVEST_RIPENESS));
-  const ripeFraction = EARLY_RIPE_FRACTION + (1 - EARLY_RIPE_FRACTION) * ripeProgress;
-  const effectiveRot = clamp(clamp(finiteOr(vineyard.rot, 0)) - clamp(finiteOr(vineyard.nobleRot, 0)) * 0.25);
-  const ripeCropKg = floorKgToGram(cropKg * ripeFraction * (1 - effectiveRot));
-  const remainingRipeKg = Math.max(0, ripeCropKg - harvestedSoFarKg);
-  if (remainingRipeKg <= 0) return failure('No ripe grapes remain available to harvest.');
+  if (vineyard.ripeKg <= 0) return failure('No ripe grapes remain available to harvest.');
 
-  const harvestedKg = Math.min(requestedKgAtGramPrecision, remainingRipeKg);
+  const harvestedKg = Math.min(requestedKgAtGramPrecision, vineyard.ripeKg);
   const nextVineyard = Object.freeze({
     ...vineyard,
-    harvestedKg: roundKg(harvestedSoFarKg + harvestedKg),
+    harvestedKg: (grams(vineyard.harvestedKg) + grams(harvestedKg)) / KG_PRECISION,
+    ripeKg: (grams(vineyard.ripeKg) - grams(harvestedKg)) / KG_PRECISION,
   });
   return success(Object.freeze({ vineyard: nextVineyard, harvestedKg }));
 }
