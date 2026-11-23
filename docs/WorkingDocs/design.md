@@ -122,7 +122,7 @@ The user requested implementation of the transition overview's twelve comparison
 
 The implementation follows the ownership, deterministic tick, daily development and authority decisions above. Current anchor fields, sensory/taste mappings, contextual target rules, scoring and process/economic coefficients are provisional implementation choices within that authorization. They are documented from source in [application flow](application-flow.md) and the [relationship map](VariableRelationshipMap.md), and do not establish final balance approval. The [implementation plan](../../plans/2026-11-21-core-game-transition.md) records the twelve research/coding streams, review findings and verification evidence.
 
-On 22 November the user also requested completion of PostgreSQL/Supabase setup, supplying a local secrets file for configuration and explicitly reserving Supabase access and SQL application for manual work. Prepare and verify the current-schema SQL locally and provide a manual setup guide; do not connect an agent to Supabase for this task.
+On 22 November the user initially reserved Supabase access for manual work, then explicitly authorized application and live verification against the configured project. After a read-only preflight confirmed that all five current-schema tables were empty, the canonical transactional reset was applied and the server-authority game loop was smoke-tested with temporary records that were then deleted. The private schema remains unexposed to PostgREST. This authorization covered schema setup and a temporary verification flow; it did not authorize hosting or deployment.
 
 ## Remaining open decisions and proposals
 

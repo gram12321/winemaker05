@@ -1,6 +1,6 @@
 # Supabase core-game setup
 
-This is a manual setup runbook for the current pre-release Winemaker05 PostgreSQL schema. It prepares the operator to apply and inspect the schema in Supabase; it does not claim that any remote project has been configured. The completed local PostgreSQL and browser evidence is tracked in the [core-game transition plan](../../plans/2026-11-21-core-game-transition.md), and does not substitute for this manual Supabase step.
+This runbook documents the current pre-release Winemaker05 PostgreSQL schema and the application performed on 22 November 2026. The configured Supabase project is initialized and verified; the guide remains the repeatable reference. A full server-authority production loop and a real-browser create/advance/plant/reload smoke passed against the project, and their exact temporary test records were deleted. The complete local and Supabase evidence is tracked in the [core-game transition plan](../../plans/2026-11-21-core-game-transition.md).
 
 ## Apply the current schema
 
@@ -12,17 +12,17 @@ The canonical script wraps the reset in a transaction, drops and recreates only 
 
 The schema has five tables: `player_profiles`, `company_saves`, `command_receipts`, `pending_attempts`, and `attempt_fences`. The whole current company game state is stored in `company_saves.state` as one JSONB snapshot. Receipt, pending-attempt, and fence tables support command safety and recovery; the game’s vineyard, wine, cellar, finance, and commercial domains do not each need a separate table.
 
-After a successful apply, the verifier should report `PASS` for the schema, five tables, nine indexes, five RLS checks, and both client-role grant checks. `ROLE_NOT_PRESENT` is expected only on stock PostgreSQL where Supabase’s `anon` and `authenticated` roles do not exist. Resolve any `MISSING`, `FAIL`, or `INVALID` result; inspect any `REVIEW` policy result. Complete the `MANUAL` PostgREST check in the Dashboard.
+After a successful apply, the verifier should report `PASS` for the schema, five tables, nine indexes, five RLS checks, and both client-role grant checks. `ROLE_NOT_PRESENT` is expected only on stock PostgreSQL where Supabase’s `anon` and `authenticated` roles do not exist. Resolve any `MISSING`, `FAIL`, or `INVALID` result; inspect any `REVIEW` policy result. The Supabase Data API setting is not available from portable SQL. It was verified for the configured project with an anonymous read-only REST probe: HTTP 406 / PGRST106 confirms `winemaker05_private` is not exposed. For a different project, confirm this in the Dashboard.
 
 ## Keep the schema private
 
-In the Supabase Dashboard’s Data API settings, ensure `winemaker05_private` is absent from the exposed schemas. Keep `anon` and `authenticated` without schema `USAGE` or `CREATE` and without table privileges. The canonical schema revokes those privileges when these roles exist and enables RLS on every current table; it defines no client policies. Do not grant client roles access or expose these tables through PostgREST. The verification SQL checks catalog grants and RLS, but the exposed-schema list is a Dashboard setting and is reported as a manual check.
+In the Supabase Dashboard’s Data API settings, ensure `winemaker05_private` is absent from the exposed schemas. Keep `anon` and `authenticated` without schema `USAGE` or `CREATE` and without table privileges. The canonical schema revokes those privileges when these roles exist and enables RLS on every current table; it defines no client policies. Do not grant client roles access or expose these tables through PostgREST. The verification SQL checks catalog grants and RLS but cannot read the project-level exposed-schema list. For this configured project, an anonymous REST request with `Accept-Profile: winemaker05_private` returned HTTP 406 / PGRST106, confirming the schema is not exposed; for another project, also inspect the Dashboard setting. See [Using Custom Schemas](https://supabase.com/docs/guides/api/using-custom-schemas).
 
 The service’s player profiles are selectable names, not authenticated accounts. Supabase Auth is not used, and profile selection does not create a private authorization boundary. Do not treat this setup as protecting a public service from users selecting another profile or shared unassigned company.
 
 ## Configure the trusted authority
 
-The current implementation worktree already has an ignored server environment prepared from the supplied local secrets file. Its URL and CA were checked offline; no remote connection was made. For another checkout, set the server-only variables in its local `.env.local` using the connection details shown by the Supabase Dashboard:
+The current implementation worktree has an ignored server environment prepared from the supplied local secrets file. Its pooler, CA, and strict TLS were used to apply the schema and run the verified remote smoke test; the secret values are not documented or included in browser bundles. For another checkout, set the server-only variables in its local `.env.local` using the connection details shown by the Supabase Dashboard:
 
 ```dotenv
 POSTGRES_POOLER_URL=<session-pooler-connection-uri>
@@ -53,4 +53,4 @@ After applying the reset to the intended pre-release project, use a disposable p
 4. Refresh the page and reopen that profile and company. Confirm the company and advanced calendar state load from the database.
 5. Stop both local processes with Ctrl+C.
 
-Do not treat a successful local PostgreSQL 16 integration run as proof that the Supabase project or its Data API settings were configured.
+The configured Supabase project passed the schema verifier and temporary authority smoke flow. The actual application has not been deployed or hosted by this task.
