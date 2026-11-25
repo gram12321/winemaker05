@@ -56,6 +56,7 @@ function fermentationActionLabel(lot: PhysicalLot): string {
 /** All cross-domain calculations consumed by React live in this read layer. */
 export function companyView(state: CompanyState) {
   const workPreview = progressHarvestWork(state.work, state.estate.vineyards, state.estate.weather, harvestStorageFreeG(state.inventory) / 1000, state.finance.wageArrearsCents > 0);
+  const vineyards = state.estate.vineyards.map(vineyard => ({ vineyard, grape: GRAPES[vineyard.grapeId], site: SITES[vineyard.siteId], origin: createWineOrigin(vineyard), harvestableKg: vineyard.ripeKg, landValueCents: landValueCents(SITES[vineyard.siteId], vineyard.areaHa) }));
   const lots = state.winery.lots.map(lot => {
     const holding = state.inventory.holdings.find(h => h.lotId === lot.id)!;
     const assessment = assessWine(lot);
@@ -71,14 +72,29 @@ export function companyView(state: CompanyState) {
       vesselName: state.equipment.vessels.find(v => v.id === holding.vesselId)?.name ?? (holding.location === 'cellar' ? 'Bottle cellar' : 'Harvest receiving'),
     };
   });
+  const vessels = state.equipment.vessels.map(vessel => {
+    const vesselHoldings = state.inventory.holdings.filter(holding => holding.vesselId === vessel.id && holding.unit === 'ml');
+    const occupiedMl = vesselHoldings.reduce((sum, holding) => sum + holding.quantity, 0);
+    const freeMl = vesselCapacityFreeMl(vessel, state.inventory.holdings);
+    return {
+      vessel, freeMl, occupiedMl,
+      fillRatio: vessel.capacityMl > 0 ? 1 - freeMl / vessel.capacityMl : 0,
+      occupants: vesselHoldings.map(holding => state.winery.lots.find(lot => lot.id === holding.lotId)!),
+    };
+  });
+  const activeLots = lots.filter(row => row.lot.form !== 'bottled');
+  const bottledLots = lots.filter(row => row.lot.form === 'bottled');
+  const bottlesInCellar = state.inventory.holdings.filter(holding => holding.unit === 'bottle').reduce((sum, holding) => sum + holding.quantity, 0);
   return {
-    week: state.week, weather: state.estate.weather,
+    week: state.week, calendar: state.calendar, weather: state.estate.weather,
     finance: state.finance,
     grapeOptions: Object.values(GRAPES), siteOptions: Object.values(SITES),
-    vineyards: state.estate.vineyards.map(vineyard => ({ vineyard, grape: GRAPES[vineyard.grapeId], site: SITES[vineyard.siteId], origin: createWineOrigin(vineyard), harvestableKg: vineyard.ripeKg, landValueCents: landValueCents(SITES[vineyard.siteId], vineyard.areaHa) })),
+    vineyards,
     lots,
+    activeLots,
+    bottledLots,
     archivedLots: state.winery.archivedLots,
-    vessels: state.equipment.vessels.map(vessel => ({ vessel, freeMl: vesselCapacityFreeMl(vessel, state.inventory.holdings), occupants: state.inventory.holdings.filter(h => h.vesselId === vessel.id).map(h => state.winery.lots.find(l => l.id === h.lotId)!) })),
+    vessels,
     cellarTemperatureC: state.equipment.cellarTemperatureC,
     work: state.work, workPreview,
     harvestStorageFreeG: harvestStorageFreeG(state.inventory),
@@ -88,9 +104,18 @@ export function companyView(state: CompanyState) {
     sales: state.commercial.sales,
     summary: {
       vineyardCount: state.estate.vineyards.length,
+      harvestReadyVineyardCount: vineyards.filter(row => row.harvestableKg > 0).length,
       liveLotCount: lots.length,
-      bottlesInCellar: state.inventory.holdings.filter(h => h.unit === 'bottle').reduce((sum, h) => sum + h.quantity, 0),
+      activeLotCount: activeLots.length,
+      bottlesInCellar,
+      bottledLotCount: bottledLots.length,
+      harvestableKg: vineyards.reduce((sum, row) => sum + row.harvestableKg, 0),
+      harvestedKg: state.estate.vineyards.reduce((sum, vineyard) => sum + vineyard.harvestedKg, 0),
+      activeHarvests: state.work.activities.length,
+      vesselCount: vessels.length,
+      occupiedVesselCount: vessels.filter(row => row.occupants.length > 0).length,
       totalRevenueCents: state.commercial.sales.reduce((sum, sale) => sum + sale.revenueCents, 0),
+      saleCount: state.commercial.sales.length,
       landAssetsCents: state.estate.vineyards.reduce((sum, v) => sum + landValueCents(SITES[v.siteId], v.areaHa), 0),
       activeCommitments: state.commercial.contracts.filter(c => c.status === 'accepted').length,
     },

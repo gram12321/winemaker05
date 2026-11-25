@@ -3,22 +3,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CompanyState } from '../../src/game/core/CompanyState';
-import type { CellarLotView } from '../../src/game/queries/CompanyView';
+import { companyView, type CellarLotView } from '../../src/game/queries/CompanyView';
 import App from '../../src/App';
 import { Cellar } from '../../src/components/game/Cellar';
 import { PressForm } from '../../src/components/game/LotActions';
-import { money, percent } from '../../src/components/game/common';
+import { money, percent, percentage } from '../../src/components/game/common';
 
 vi.mock('../../src/scene/SceneCanvas', () => ({ SceneCanvas: () => null }));
 vi.mock('../../src/game/queries/CompanyView', () => ({
   companyView: (state: CompanyState) => ({
-    week: state.week, weather: state.estate.weather, finance: state.finance,
+    week: state.week, calendar: state.calendar, weather: state.estate.weather, finance: state.finance,
     grapeOptions: [{ id: 'pinot-noir', name: 'Pinot Noir' }, { id: 'chardonnay', name: 'Chardonnay' }],
     siteOptions: [{ id: 'hillside', name: 'North Slope', region: 'Upper Valley' }, { id: 'riverbend', name: 'River Bend', region: 'Lower Valley' }],
-    vineyards: [], lots: [], archivedLots: [], vessels: [], cellarTemperatureC: 14,
+    vineyards: [], lots: [], activeLots: [], bottledLots: [], archivedLots: [], vessels: [], cellarTemperatureC: 14,
     work: state.work, workPreview: { work: state.work, outputs: [] }, harvestStorageFreeG: 500000,
     customers: state.commercial.customers, contracts: [], reservations: [], sales: [],
-    summary: { vineyardCount: 0, liveLotCount: 0, bottlesInCellar: 0, totalRevenueCents: 0, landAssetsCents: 0, activeCommitments: 0 },
+    summary: { vineyardCount: 0, harvestReadyVineyardCount: 0, liveLotCount: 0, activeLotCount: 0, bottlesInCellar: 0, bottledLotCount: 0, harvestableKg: 0, harvestedKg: 0, activeHarvests: state.work.activities.length, vesselCount: 0, occupiedVesselCount: 0, totalRevenueCents: 0, saleCount: 0, landAssetsCents: 0, activeCommitments: 0 },
   }),
   vineyardEstablishmentPreview: (siteId: string, grapeId: string, areaHa: number) => areaHa >= 0.01 && areaHa <= 100
     ? { ok: true, value: {
@@ -134,18 +134,18 @@ describe('connected game interactions', () => {
       pressingCostCents: 100, maximumBottlingCostCents: null,
       bottlingReadiness: { ready: false, reasons: ['Press the grapes first.'] }, vesselName: 'Harvest receiving',
     } as unknown as CellarLotView;
-    const view = { lots: [row], customers: [] };
+    const view = { ...companyView(state), lots: [row], activeLots: [row] };
     const onCommand = vi.fn();
 
     render(<Cellar company={state} view={view as never} disabled={false} onCommand={onCommand} />);
 
-    expect(screen.getAllByText(/North Block \(pinot noir 2028, 65%\) \+ South Block \(chardonnay 2030, 35%\)/)).toHaveLength(3);
+    expect(screen.getAllByText(/North Block \(pinot noir 2028, 65\s*%\) \+ South Block \(chardonnay 2030, 35\s*%\)/)).toHaveLength(3);
     expect(screen.queryByText(/Dominant Only Block/)).toBeNull();
     expect(screen.getByText(/Quality is based on structure fit, adjusted once for the strongest current physical risk/)).toBeTruthy();
     const sourceDetails = [...document.querySelectorAll('.game-detail-content li')].map(item => item.textContent);
     expect(sourceDetails).toEqual([
-      `North Block · Upper Valley · ${percent(0.65)}: Terroir Potential ${percent(0.8)} · Origin Prestige ${percent(0.6)}`,
-      `South Block · Lower Valley · ${percent(0.35)}: Terroir Potential ${percent(0.7)} · Origin Prestige ${percent(0.4)}`,
+      `North Block · Upper Valley · ${percentage(0.65, 0)}: Terroir Potential ${percent(0.8)} · Origin Prestige ${percent(0.6)}`,
+      `South Block · Lower Valley · ${percentage(0.35, 0)}: Terroir Potential ${percent(0.7)} · Origin Prestige ${percent(0.4)}`,
     ]);
     expect(screen.getByText('Wine age').nextElementSibling?.textContent).toBe('7 days');
     expect(screen.getByText('Lot age').nextElementSibling?.textContent).toBe('28 days');

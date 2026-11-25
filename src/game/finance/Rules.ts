@@ -1,5 +1,6 @@
 import type { FinanceState, Posting } from './types';
 import { failure, success, type RuleResult } from '../core/Numbers';
+import { formatNumber } from '../../shared/numberFormat';
 
 export const WEEKLY_WAGE_PER_WORKER_CENTS = 2_000;
 
@@ -16,7 +17,7 @@ export function postMoney(state: FinanceState, posting: Posting): RuleResult<Fin
 export function payWeeklyWages(state: FinanceState, staffCount: number, week: number): FinanceState {
   const due = state.wageArrearsCents + staffCount * WEEKLY_WAGE_PER_WORKER_CENTS;
   const paid = Math.min(state.cashCents, due);
-  const posted = paid ? postMoney(state, { id: `wages-${week}`, week, amountCents: -paid, category: 'wages', description: `Week ${week} staff wages${paid < due ? ' (partial)' : ''}` }) : success(state);
+  const posted = paid ? postMoney(state, { id: `wages-${week}`, week, amountCents: -paid, category: 'wages', description: `Week ${formatNumber(week, { fractionDigits: 0 })} staff wages${paid < due ? ' (partial)' : ''}` }) : success(state);
   if (!posted.ok) throw new Error(posted.reason);
   return { ...posted.value, wageArrearsCents: due - paid };
 }

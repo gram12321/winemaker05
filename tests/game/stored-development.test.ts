@@ -50,7 +50,7 @@ describe('daily environment handover', () => {
 
     expect(oxidation.map(cause => cause.includes('20°C fermenting'))).toContain(true);
     expect(oxidation.map(cause => cause.includes('10°C cellar'))).toContain(true);
-    expect(rot).toContain('contamination 0.05');
+    expect(rot).toContain('contamination 0,05');
     expect(rot).toContain('20°C');
     expect(rot).toContain('sugar ≤4 g/L (fermenting)');
     expect(rot).not.toContain('10°C');

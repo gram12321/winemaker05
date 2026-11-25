@@ -6,6 +6,7 @@ import { acceptContract, contractEligibility, quoteWine, recordSale } from '../c
 import { assessWine } from '../evaluation/Assessment';
 import { availableQuantity, consume } from '../inventory/Rules';
 import { archiveConsumedLots, recordPayment, replaceLot, traceLot } from './Transactions';
+import { formatEurCents, formatNumber } from '../../shared/numberFormat';
 
 export function commercialAction(state: CompanyState, command: GameCommand): RuleResult<CompanyState> {
   switch (command.type) {
@@ -18,12 +19,12 @@ export function commercialAction(state: CompanyState, command: GameCommand): Rul
       if (!quote.ok) return quote;
       const consumed = consume(state.inventory, lot.id, command.bottles);
       if (!consumed.ok) return consumed;
-      const paid = recordPayment(state, 'sale', quote.value.totalCents, `${command.bottles} bottles of ${lot.name} to ${customer.id}`);
+      const paid = recordPayment(state, 'sale', quote.value.totalCents, `${formatNumber(command.bottles, { fractionDigits: 0 })} bottles of ${lot.name} to ${customer.id}`);
       if (!paid.ok) return paid;
       const sale: Sale = { id: `sale-${paid.value.sequence}`, week: state.week, lotId: lot.id, buyerId: customer.id, bottles: command.bottles, revenueCents: quote.value.totalCents, contractId: null };
       const commercial = recordSale(state.commercial, sale);
       if (!commercial.ok) return commercial;
-      const recorded = traceLot(lot, state.week, 'Sold', `${command.bottles} bottles sold to ${customer.id} for ${quote.value.totalCents} cents.`);
+      const recorded = traceLot(lot, state.week, 'Sold', `${formatNumber(command.bottles, { fractionDigits: 0 })} bottles sold to ${customer.id} for ${formatEurCents(quote.value.totalCents)}.`);
       return success(archiveConsumedLots(replaceLot({ ...paid.value, sequence: paid.value.sequence + 1, inventory: consumed.value, commercial: commercial.value }, recorded)));
     }
     case 'contract.accept': {
@@ -71,7 +72,7 @@ function fulfill(state: CompanyState, contractId: string): RuleResult<CompanySta
     const recordedSale = recordSale(commercial, { id: `sale-${sequence++}`, week: state.week, lotId: lot.id, buyerId: contract.buyerId, bottles: reservation.bottles, revenueCents: contract.pricePerBottleCents * reservation.bottles, contractId: contract.id });
     if (!recordedSale.ok) return recordedSale;
     commercial = recordedSale.value;
-    traced = replaceLot(traced, traceLot(lot, state.week, 'Contract delivery', `${reservation.bottles} bottles delivered under ${contract.id}.`));
+    traced = replaceLot(traced, traceLot(lot, state.week, 'Contract delivery', `${formatNumber(reservation.bottles, { fractionDigits: 0 })} bottles delivered under ${contract.id}.`));
   }
   const paid = recordPayment({ ...traced, sequence }, 'contract', contract.pricePerBottleCents * contract.bottles, `Delivered contract ${contract.id}`);
   if (!paid.ok) return paid;

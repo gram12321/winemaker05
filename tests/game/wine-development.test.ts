@@ -149,7 +149,7 @@ describe('unified physical wine development', () => {
     expect(oxygenOnly.lot.physical.oxidation).toBeGreaterThan(source.physical.oxidation);
     expect(oxygenOnly.lot.physical.rot).toBe(source.physical.rot);
     expect(oxygenOnly.causes.find(cause => cause.startsWith('Oxygen exposure/oxidation:')))
-      .toContain('0.004/day oxygen ingress, 15°C cellar');
+      .toContain('0,004/day oxygen ingress, 15°C cellar');
     expect(oxygenOnly.causes.some(cause => cause.startsWith('Rot:'))).toBe(false);
 
     expect(warmerOnly.lot.physical.oxidation).toBe(source.physical.oxidation);
@@ -158,7 +158,7 @@ describe('unified physical wine development', () => {
 
     expect(contaminationOnly.lot.physical.rot).toBeGreaterThan(source.physical.rot);
     expect(contaminationOnly.causes.find(cause => cause.startsWith('Rot:')))
-      .toContain('contamination 0.7, 15°C cool, sugar >4 g/L (cellar)');
+      .toContain('contamination 0,7, 15°C cool, sugar >4 g/L (cellar)');
   });
 
   it('finishes at exactly the shared sugar threshold and never consumes dry residual sugar', () => {

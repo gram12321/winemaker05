@@ -2,6 +2,7 @@ import { clamp } from '../core/Numbers';
 import { MIN_FERMENTABLE_SUGAR_G_PER_L } from './Operations';
 import type { PhysicalLot, PhysicalState, WineEnvironment } from './types';
 import type { WineFault } from '../evaluation/types';
+import { formatNumber } from '../../shared/numberFormat';
 
 /** Provisional daily risk balance values. Environment pressure values are normalized to 0..1. */
 export const OXIDATION_PER_OXYGEN_EXPOSURE = 0.08;
@@ -172,21 +173,21 @@ export function diagnoseWine(lot: PhysicalLot): readonly WineFault[] {
     faults.push(fault(
       'oxidation',
       physical.oxidation,
-      `Oxidation is ${physical.oxidation.toFixed(2)} after ${physical.oxygenExposure.toFixed(3)} accumulated oxygen exposure.`,
+      `Oxidation is ${formatNumber(physical.oxidation, { maximumFractionDigits: 2 })} after ${formatNumber(physical.oxygenExposure, { maximumFractionDigits: 3 })} accumulated oxygen exposure.`,
     ));
   }
   if (physical.rot >= ROT_DIAGNOSIS_THRESHOLD) {
     faults.push(fault(
       'spoilage',
       physical.rot,
-      `Rot is ${physical.rot.toFixed(2)}; this burden can be inherited from harvest or grow under cellar contamination pressure.`,
+      `Rot is ${formatNumber(physical.rot, { maximumFractionDigits: 2 })}; this burden can be inherited from harvest or grow under cellar contamination pressure.`,
     ));
   }
   if (physical.greenCharacter >= GREEN_CHARACTER_DIAGNOSIS_THRESHOLD) {
     faults.push(fault(
       'green-character',
       physical.greenCharacter,
-      `Green character remains at ${physical.greenCharacter.toFixed(2)}; under-ripe material or pressing can contribute, and time can soften it.`,
+      `Green character remains at ${formatNumber(physical.greenCharacter, { maximumFractionDigits: 2 })}; under-ripe material or pressing can contribute, and time can soften it.`,
     ));
   }
   if (lot.processes.fermenting
@@ -200,7 +201,7 @@ export function diagnoseWine(lot: PhysicalLot): readonly WineFault[] {
     faults.push(fault(
       'stuck-fermentation',
       yeastShortfall * 0.75 + residualSugar * 0.25,
-      `Fermentation is active with ${physical.sugarGPerL.toFixed(1)} g/L sugar and yeast activity ${physical.yeastActivity.toFixed(2)}, below the ${STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD.toFixed(2)} activity threshold.`,
+      `Fermentation is active with ${formatNumber(physical.sugarGPerL, { maximumFractionDigits: 1 })} g/L sugar and yeast activity ${formatNumber(physical.yeastActivity, { maximumFractionDigits: 2 })}, below the ${formatNumber(STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD, { maximumFractionDigits: 2 })} activity threshold.`,
     ));
   }
 

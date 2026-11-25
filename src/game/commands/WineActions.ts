@@ -7,6 +7,7 @@ import { isUsableVessel, recordVesselFill, vesselCapacityFreeMl } from '../equip
 import { assessWine } from '../evaluation/Assessment';
 import { bottlingCostCents, pressingCostCents } from '../finance/ProcessingCosts';
 import { archiveConsumedLots, recordPayment, replaceLot, traceLot } from './Transactions';
+import { formatNumber } from '../../shared/numberFormat';
 
 export function wineAction(state: CompanyState, command: GameCommand): RuleResult<CompanyState> {
   if (command.type === 'wine.blend') return blendAction(state, command);
@@ -27,7 +28,7 @@ export function wineAction(state: CompanyState, command: GameCommand): RuleResul
       if (!filled.ok) return filled;
       const paid = recordPayment(state, 'processing', -pressingCostCents(holding.quantity), `Pressed ${lot.name}`);
       if (!paid.ok) return paid;
-      const recorded = traceLot(pressed.value.lot, state.week, 'Juice allocated', `${holding.quantity} g grapes produced ${quantity} ml juice in ${vessel.name}.`);
+      const recorded = traceLot(pressed.value.lot, state.week, 'Juice allocated', `${formatNumber(holding.quantity, { fractionDigits: 0 })} g grapes produced ${formatNumber(quantity, { fractionDigits: 0 })} ml juice in ${vessel.name}.`);
       return success(replaceLot({ ...paid.value, inventory: setHolding(state.inventory, { lotId: lot.id, quantity, unit: 'ml', location: 'vessel', vesselId: vessel.id }), equipment: { ...state.equipment, vessels: state.equipment.vessels.map(v => v.id === vessel.id ? filled.value : v) } }, recorded));
     }
     case 'wine.ferment': {
@@ -62,7 +63,7 @@ export function wineAction(state: CompanyState, command: GameCommand): RuleResul
       const remaining = consume(state.inventory, lot.id, command.quantity);
       if (!remaining.ok) return remaining;
       const inventory = setHolding(remaining.value, { ...holding, lotId: child.id, quantity: command.quantity, vesselId: command.vesselId });
-      return success(replaceLot(replaceLot({ ...state, sequence: state.sequence + 1, inventory, equipment }, traceLot(lot, state.week, 'Split', `${command.quantity} ${holding.unit} separated into ${child.id}.`)), traceLot(child, state.week, 'Portion allocated', `${command.quantity} ${holding.unit} allocated from ${lot.id}.`)));
+      return success(replaceLot(replaceLot({ ...state, sequence: state.sequence + 1, inventory, equipment }, traceLot(lot, state.week, 'Split', `${formatNumber(command.quantity, { fractionDigits: 0 })} ${holding.unit} separated into ${child.id}.`)), traceLot(child, state.week, 'Portion allocated', `${formatNumber(command.quantity, { fractionDigits: 0 })} ${holding.unit} allocated from ${lot.id}.`)));
     }
     case 'wine.bottle': {
       if (command.bottles <= 0 || command.bottles * BOTTLE_ML > holding.quantity) return failure('Choose a whole bottle count within the available wine volume.');
@@ -71,17 +72,17 @@ export function wineAction(state: CompanyState, command: GameCommand): RuleResul
       if (!bottled.ok) return bottled;
       const consumed = consume(state.inventory, lot.id, command.bottles * BOTTLE_ML);
       if (!consumed.ok) return consumed;
-      const paid = recordPayment({ ...state, sequence: state.sequence + 1 }, 'processing', -bottlingCostCents(command.bottles), `Bottled ${command.bottles} bottles of ${lot.name}`);
+      const paid = recordPayment({ ...state, sequence: state.sequence + 1 }, 'processing', -bottlingCostCents(command.bottles), `Bottled ${formatNumber(command.bottles, { fractionDigits: 0 })} bottles of ${lot.name}`);
       if (!paid.ok) return paid;
       const inventory = setHolding(consumed.value, { lotId: bottled.value.id, quantity: command.bottles, unit: 'bottle', location: 'cellar', vesselId: null });
-      const source = traceLot(lot, state.week, 'Bottling portion', `${command.bottles * BOTTLE_ML} ml consumed to produce ${command.bottles} bottles in ${bottled.value.id}.`);
-      const bottles = traceLot(bottled.value, state.week, 'Bottles allocated', `${command.bottles} bottles of ${BOTTLE_ML} ml produced from ${lot.id}.`);
+      const source = traceLot(lot, state.week, 'Bottling portion', `${formatNumber(command.bottles * BOTTLE_ML, { fractionDigits: 0 })} ml consumed to produce ${formatNumber(command.bottles, { fractionDigits: 0 })} bottles in ${bottled.value.id}.`);
+      const bottles = traceLot(bottled.value, state.week, 'Bottles allocated', `${formatNumber(command.bottles, { fractionDigits: 0 })} bottles of ${formatNumber(BOTTLE_ML, { fractionDigits: 0 })} ml produced from ${lot.id}.`);
       return success(archiveConsumedLots(replaceLot(replaceLot({ ...paid.value, inventory }, source), bottles)));
     }
     case 'wine.discard': {
       const consumed = consume(state.inventory, lot.id, command.quantity);
       if (!consumed.ok) return consumed;
-      const recorded = traceLot(lot, state.week, 'Discarded', `Discarded ${command.quantity} ${holding.unit}; no sale proceeds. Contract reservations remain protected.`);
+      const recorded = traceLot(lot, state.week, 'Discarded', `Discarded ${formatNumber(command.quantity, { fractionDigits: 0 })} ${holding.unit}; no sale proceeds. Contract reservations remain protected.`);
       return success(archiveConsumedLots(replaceLot({ ...state, inventory: consumed.value }, recorded)));
     }
     default: return failure('Unsupported winery command.');
@@ -104,7 +105,7 @@ function blendAction(state: CompanyState, command: Extract<GameCommand, { type: 
   if (!filled.ok) return filled;
   const inventory = { ...state.inventory, holdings: [...state.inventory.holdings.filter(h => !command.lotIds.includes(h.lotId)), { lotId: result.value.id, quantity, unit: 'ml' as const, location: 'vessel' as const, vesselId: vessel.id }] };
   let traced = state;
-  for (const input of known) traced = replaceLot(traced, traceLot(input.lot, state.week, 'Blended portion', `${input.holding.quantity} ml consumed into ${result.value.id}.`));
-  const blended = traceLot(result.value, state.week, 'Blend allocated', `${quantity} ml allocated to ${vessel.name}; source portions are recorded on the archived parents.`);
+  for (const input of known) traced = replaceLot(traced, traceLot(input.lot, state.week, 'Blended portion', `${formatNumber(input.holding.quantity, { fractionDigits: 0 })} ml consumed into ${result.value.id}.`));
+  const blended = traceLot(result.value, state.week, 'Blend allocated', `${formatNumber(quantity, { fractionDigits: 0 })} ml allocated to ${vessel.name}; source portions are recorded on the archived parents.`);
   return success(archiveConsumedLots(replaceLot({ ...traced, sequence: state.sequence + 1, inventory, equipment: { ...state.equipment, vessels: state.equipment.vessels.map(v => v.id === vessel.id ? filled.value : v) } }, blended)));
 }

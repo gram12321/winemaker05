@@ -3,6 +3,7 @@ import { deriveTaste } from '../evaluation/Taste';
 import type { TasteFamily, TasteProfile, WineAssessment } from '../evaluation/types';
 import type { PhysicalLot } from '../wine/types';
 import type { BuyerId, CommercialState, Sale, WineContract } from './types';
+import { formatNumber, formatPercent as displayPercent } from '../../shared/numberFormat';
 
 interface BuyerPricingProfile {
   readonly name: string;
@@ -133,10 +134,6 @@ function buyerStyleFit(profile: BuyerPricingProfile, taste: TasteProfile): numbe
   return totalWeight > 0 ? clamp(weightedFit / totalWeight) : 0;
 }
 
-function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
 function refusedFault(assessment: WineAssessment) {
   return assessment.faults.find(fault =>
     (fault.code === 'oxidation' || fault.code === 'spoilage')
@@ -206,7 +203,7 @@ export function quoteWine(
   if (!isBuyerId(buyerId)) return failure('Choose a valid wine buyer.');
   if (lot.form !== 'bottled') return failure('Only bottled wine can be sold.');
   if (!validAssessment(assessment)) return failure('The current wine assessment is invalid.');
-  if (!Number.isFinite(relationship) || relationship < 0 || relationship > 1) return failure('Buyer relationship must be between 0% and 100%.');
+  if (!Number.isFinite(relationship) || relationship < 0 || relationship > 1) return failure('Buyer relationship must be between 0 % and 100 %.');
   if (!Number.isSafeInteger(bottles) || bottles <= 0) return failure('Enter a positive whole number of bottles.');
 
   const severeFault = refusedFault(assessment);
@@ -243,11 +240,11 @@ export function quoteWine(
       ? 'past this buyer’s preferred maturity window'
       : 'within this buyer’s preferred maturity window';
   const reasons = [
-    `Current assessed quality is ${formatPercent(assessment.quality)}; the assessment already accounts for the strongest physical fault once.`,
-    `${buyer.name} style fit is ${formatPercent(styleFit)} from the wine’s current taste profile.`,
+    `Current assessed quality is ${displayPercent(assessment.quality, { fractionDigits: 0 })}; the assessment already accounts for the strongest physical fault once.`,
+    `${buyer.name} style fit is ${displayPercent(styleFit, { fractionDigits: 0 })} from the wine’s current taste profile.`,
     `The wine is ${developmentLabel}.`,
-    `Origin Prestige is ${formatPercent(prestige)} across all blend sources by their fractions and is applied once.`,
-    `Buyer relationship adjusts the quote to ${relationshipFactor.toFixed(2)}×.`,
+    `Origin Prestige is ${displayPercent(prestige, { fractionDigits: 0 })} across all blend sources by their fractions and is applied once.`,
+    `Buyer relationship adjusts the quote to ${formatNumber(relationshipFactor, { fractionDigits: 2 })}×.`,
   ];
   return success(Object.freeze({
     pricePerBottleCents: computedPrice,
@@ -270,19 +267,19 @@ export function contractEligibility(
   else if (week > contract.dueWeek) reasons.push('This contract is past its delivery week.');
   if (lot.form !== 'bottled') reasons.push('Contracts require bottled wine.');
   if (!Number.isSafeInteger(bottles) || bottles <= 0) reasons.push('Allocate a positive whole number of bottles.');
-  else if (!Number.isSafeInteger(contract.bottles) || bottles > contract.bottles) reasons.push(`This allocation cannot exceed the contract target of ${contract.bottles} bottles.`);
+  else if (!Number.isSafeInteger(contract.bottles) || bottles > contract.bottles) reasons.push(`This allocation cannot exceed the contract target of ${formatNumber(contract.bottles, { fractionDigits: 0 })} bottles.`);
   if (!validAssessment(assessment)) reasons.push('The current wine assessment is invalid.');
   else {
     const severeFault = refusedFault(assessment);
     if (severeFault) reasons.push(`The buyer refuses wine with severe ${severeFault.code}.`);
-    if (assessment.structure.score < contract.minimumStructure) reasons.push(`Structure is ${formatPercent(assessment.structure.score)}; this contract requires ${formatPercent(contract.minimumStructure)}.`);
-    if (assessment.taste.score < contract.minimumTaste) reasons.push(`Taste fit is ${formatPercent(assessment.taste.score)}; this contract requires ${formatPercent(contract.minimumTaste)}.`);
+    if (assessment.structure.score < contract.minimumStructure) reasons.push(`Structure is ${displayPercent(assessment.structure.score, { fractionDigits: 0 })}; this contract requires ${displayPercent(contract.minimumStructure, { fractionDigits: 0 })}.`);
+    if (assessment.taste.score < contract.minimumTaste) reasons.push(`Taste fit is ${displayPercent(assessment.taste.score, { fractionDigits: 0 })}; this contract requires ${displayPercent(contract.minimumTaste, { fractionDigits: 0 })}.`);
   }
   if (!Number.isSafeInteger(lot.physical.ageDays) || lot.physical.ageDays < 0
     || !Number.isSafeInteger(lot.physical.developmentAgeDays) || lot.physical.developmentAgeDays < 0
     || lot.physical.developmentAgeDays > lot.physical.ageDays
     || lot.physical.developmentAgeDays < contract.minimumAgeDays) {
-    reasons.push(`This contract requires wine at least ${contract.minimumAgeDays} days old.`);
+    reasons.push(`This contract requires wine at least ${formatNumber(contract.minimumAgeDays, { fractionDigits: 0 })} days old.`);
   }
   if (contract.grapeId !== null) {
     const requiredGrape = GRAPE_NAMES[contract.grapeId];

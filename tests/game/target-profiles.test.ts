@@ -177,8 +177,22 @@ describe('contextual bounded target profiles', () => {
     expect(midpoint(blendTaste.redFruit)).toBeCloseTo(
       0.3 * midpoint(pinotTaste.redFruit) + 0.7 * midpoint(sauvignonTaste.redFruit),
     );
-    expect(blendStructure.body.reasons[0]).toContain('Pinot Noir 30.00%');
-    expect(blendStructure.body.reasons[0]).toContain('Sauvignon Blanc 70.00%');
+    expect(blendStructure.body.reasons[0]).toContain('Pinot Noir 30 %');
+    expect(blendStructure.body.reasons[0]).toContain('Sauvignon Blanc 70 %');
+  });
+
+  it('retains two decimal places when a source share needs them', () => {
+    const pinot = lot('pinot-noir');
+    const sauvignon = lot('sauvignon-blanc');
+    const blend = {
+      ...pinot,
+      sources: [
+        { ...pinot.sources[0], fraction: 0.123456 },
+        { ...sauvignon.sources[0], fraction: 0.876544 },
+      ],
+    };
+
+    expect(structureTargets(blend, STRUCTURE_PROFILE).body.reasons[0]).toContain('Pinot Noir 12,35 %');
   });
 
   it('applies the movement cap to source-weighted blend context and interaction together', () => {
@@ -204,11 +218,11 @@ describe('contextual bounded target profiles', () => {
 
     expect(targets).toEqual(structureTargets(reversedBlend, interactingProfile));
     expect(midpoint(targets.body) - baseCenter).toBeCloseTo(TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis);
-    expect(targets.body.reasons[0]).toContain('Pinot Noir 25.00%');
-    expect(targets.body.reasons[0]).toContain('Tempranillo 75.00%');
-    expect(targets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.030');
-    expect(targets.body.reasons[1]).toContain('requested +0.210');
-    expect(targets.body.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to +0.120');
+    expect(targets.body.reasons[0]).toContain('Pinot Noir 25 %');
+    expect(targets.body.reasons[0]).toContain('Tempranillo 75 %');
+    expect(targets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0,030');
+    expect(targets.body.reasons[1]).toContain('requested +0,210');
+    expect(targets.body.reasons[1]).toContain('axis movement budget +/-0,120 limits the combined shift to +0,120');
   });
 
   it('raises the body target for high tannins without shifting tannins or excusing extreme tannins', () => {
@@ -229,10 +243,10 @@ describe('contextual bounded target profiles', () => {
     expect(highTargets.tannins.low).toBe(lowTargets.tannins.low);
     expect(highTargets.tannins.high).toBe(lowTargets.tannins.high);
     expect(evaluateProfile(highTanninProfile, highTargets).axes.tannins.fit).toBe(0);
-    expect(highTargets.body.reasons[1]).toContain('Cross-axis movement: +0.180 requested. High tannin expression (1.00)');
-    expect(highTargets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.005');
-    expect(highTargets.body.reasons[1]).toContain('requested +0.185');
-    expect(highTargets.body.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to +0.120');
+    expect(highTargets.body.reasons[1]).toContain('Cross-axis movement: +0,180 requested. High tannin expression (1,00)');
+    expect(highTargets.body.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0,005');
+    expect(highTargets.body.reasons[1]).toContain('requested +0,185');
+    expect(highTargets.body.reasons[1]).toContain('axis movement budget +/-0,120 limits the combined shift to +0,120');
     expect(highTargets.body.reasons[1]).not.toContain('target-center bounds');
   });
 
@@ -249,10 +263,10 @@ describe('contextual bounded target profiles', () => {
     expect(midpoint(targets.acidity) - midpoint(noAnchorShift.acidity)).toBeCloseTo(
       -TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis,
     );
-    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0.080 requested.');
-    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is -0.050');
-    expect(targets.acidity.reasons[1]).toContain('requested -0.130');
-    expect(targets.acidity.reasons[1]).toContain('axis movement budget +/-0.120 limits the combined shift to -0.120');
+    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0,080 requested.');
+    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is -0,050');
+    expect(targets.acidity.reasons[1]).toContain('requested -0,130');
+    expect(targets.acidity.reasons[1]).toContain('axis movement budget +/-0,120 limits the combined shift to -0,120');
   });
 
   it('lets an opposite-sign interaction cancel source-anchor movement within the signed budget', () => {
@@ -266,9 +280,9 @@ describe('contextual bounded target profiles', () => {
     );
 
     expect(midpoint(targets.acidity) - midpoint(sourceWeightedBase.acidity)).toBeCloseTo(-0.03);
-    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0.080 requested.');
-    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0.050');
-    expect(targets.acidity.reasons[1]).toContain('requested -0.030; final displacement -0.030');
+    expect(targets.acidity.reasons[1]).toContain('Cross-axis movement: -0,080 requested.');
+    expect(targets.acidity.reasons[1]).toContain('Source-anchor context movement from the source-weighted base is +0,050');
+    expect(targets.acidity.reasons[1]).toContain('requested -0,030; final displacement -0,030');
     expect(targets.acidity.reasons[1]).not.toContain('axis movement budget');
   });
 
@@ -279,12 +293,12 @@ describe('contextual bounded target profiles', () => {
     const targets = structureTargets(input, profile);
 
     expect(midpoint(targets.body) - midpoint(noInteraction.body)).toBeCloseTo(0.06);
-    expect(targets.body.reasons[1]).toContain('Cross-axis movement: +0.102 requested.');
+    expect(targets.body.reasons[1]).toContain('Cross-axis movement: +0,102 requested.');
     expect(targets.body.reasons[1]).toContain(
-      'target-center bounds [0.20, 0.80] cap the unbudgeted request at +0.120',
+      'target-center bounds [0,20, 0,80] cap the unbudgeted request at +0,120',
     );
     expect(targets.body.reasons[1]).toContain(
-      'axis movement budget +/-0.120 limits the combined shift to +0.120',
+      'axis movement budget +/-0,120 limits the combined shift to +0,120',
     );
   });
 
@@ -292,9 +306,9 @@ describe('contextual bounded target profiles', () => {
     const input = lot('sauvignon-blanc', { ...ANCHORS, aromatics: 1 });
     const target = structureTargets(input, STRUCTURE_PROFILE).aroma;
 
-    expect(target.reasons[0]).toContain('aromatic anchor 1.00 requests center shift +0.050');
+    expect(target.reasons[0]).toContain('aromatic anchor 1,00 requests center shift +0,050');
     expect(target.reasons[0]).toContain(
-      'target-center bounds [0.20, 0.80] limit the applied shift to +0.000',
+      'target-center bounds [0,20, 0,80] limit the applied shift to +0,000',
     );
   });
 

@@ -2,6 +2,7 @@ import { clamp, failure, success, type RuleResult } from '../core/Numbers';
 import type { BottlingAssessment, PhysicalLot, PhysicalState, ProcessSettings, RawMaterialAnchors, WineOrigin } from './types';
 import { WINE_CAPACITY_EPSILON, WINE_MATERIAL_LIMITS } from './MaterialLimits';
 import { sourceKey } from './Provenance';
+import { formatNumber } from '../../shared/numberFormat';
 
 /** Provisional cellar balance values. Inventory continues to own every amount. */
 export const MIN_PRESS_INTENSITY = 0;
@@ -251,7 +252,7 @@ export function pressLot(
   const oxygenAdded = PRESS_OXYGEN_BASE
     + PRESS_OXYGEN_INTENSITY_FACTOR * intensity
     + (destem ? PRESS_OXYGEN_DESTEM_FACTOR : 0);
-  const detail = `Pressed at intensity ${intensity.toFixed(2)}${destem ? ', destemmed' : ', whole-cluster'}${skinContact ? ' with skin contact' : ' without skin contact'}; extracted ${extractedPhenolics.toFixed(3)} of finite phenolic potential.`;
+  const detail = `Pressed at intensity ${formatNumber(intensity, { fractionDigits: 2 })}${destem ? ', destemmed' : ', whole-cluster'}${skinContact ? ' with skin contact' : ' without skin contact'}; extracted ${formatNumber(extractedPhenolics, { fractionDigits: 3 })} of finite phenolic potential.`;
   const next: PhysicalLot = Object.freeze({
     ...copiedLot(lot),
     form: 'must',
@@ -385,7 +386,7 @@ export function blendLots(
     parentIds: Object.freeze(orderedInputs.map(input => input.lot.id)),
     sources,
     history: Object.freeze([
-      Object.freeze({ week, action: 'blended', detail: `Blended ${inputs.length} lots by quantity; source fractions retain their physical shares. Earlier histories remain with parent lots ${orderedInputs.map(input => input.lot.id).join(', ')}.` }),
+      Object.freeze({ week, action: 'blended', detail: `Blended ${formatNumber(inputs.length, { fractionDigits: 0 })} lots by quantity; source fractions retain their physical shares. Earlier histories remain with parent lots ${orderedInputs.map(input => input.lot.id).join(', ')}.` }),
     ]),
     bottling: null,
   });
@@ -399,8 +400,8 @@ export function canBottle(lot: PhysicalLot): { readonly ready: boolean; readonly
   if (problem) reasons.push(problem);
   else {
     if (lot.form !== 'wine') reasons.push('Only wine can be bottled.');
-    if (lot.physical.sugarGPerL > BOTTLING_MAX_SUGAR_G_PER_L) reasons.push(`Sugar must be at or below ${BOTTLING_MAX_SUGAR_G_PER_L} g/L.`);
-    if (lot.physical.alcoholPct < BOTTLING_MIN_ALCOHOL_PCT) reasons.push(`Alcohol must be at least ${BOTTLING_MIN_ALCOHOL_PCT}%.`);
+    if (lot.physical.sugarGPerL > BOTTLING_MAX_SUGAR_G_PER_L) reasons.push(`Sugar must be at or below ${formatNumber(BOTTLING_MAX_SUGAR_G_PER_L)} g/L.`);
+    if (lot.physical.alcoholPct < BOTTLING_MIN_ALCOHOL_PCT) reasons.push(`Alcohol must be at least ${formatNumber(BOTTLING_MIN_ALCOHOL_PCT)} %.`);
     if (lot.processes.fermenting) reasons.push('Fermentation must be inactive before bottling.');
     if (lot.bottling !== null) reasons.push('Wine that already has a bottling assessment cannot be bottled again.');
   }
@@ -420,15 +421,15 @@ export function configureFermentation(
     || !isBetween(settings.temperatureC, FERMENTATION_MIN_TEMPERATURE_C, FERMENTATION_MAX_TEMPERATURE_C)
     || typeof settings.skinContact !== 'boolean'
     || typeof settings.leesContact !== 'boolean') {
-    return failure(`Fermentation settings require a temperature from ${FERMENTATION_MIN_TEMPERATURE_C} to ${FERMENTATION_MAX_TEMPERATURE_C} C and boolean process choices.`);
+    return failure(`Fermentation settings require a temperature from ${formatNumber(FERMENTATION_MIN_TEMPERATURE_C)} to ${formatNumber(FERMENTATION_MAX_TEMPERATURE_C)} °C and boolean process choices.`);
   }
   const fermenting = lot.physical.sugarGPerL > MIN_FERMENTABLE_SUGAR_G_PER_L;
   const yeastActivity = fermenting
     ? Math.max(lot.physical.yeastActivity, FERMENTATION_VIABLE_YEAST_ACTIVITY)
     : lot.physical.yeastActivity;
   const detail = fermenting
-    ? `Fermentation enabled at ${settings.temperatureC} C; viable yeast activity restored to at least ${FERMENTATION_VIABLE_YEAST_ACTIVITY.toFixed(2)}.`
-    : `Dry wine settings changed at ${settings.temperatureC} C; fermentation remains inactive and sugar is unchanged.`;
+    ? `Fermentation enabled at ${formatNumber(settings.temperatureC)} °C; viable yeast activity restored to at least ${formatNumber(FERMENTATION_VIABLE_YEAST_ACTIVITY, { maximumFractionDigits: 2 })}.`
+    : `Dry wine settings changed at ${formatNumber(settings.temperatureC)} °C; fermentation remains inactive and sugar is unchanged.`;
   return success(Object.freeze({
     ...copiedLot(lot),
     physical: Object.freeze({ ...lot.physical, yeastActivity }),

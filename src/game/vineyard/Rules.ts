@@ -3,6 +3,7 @@ import type { CalendarState } from '../calendar/Calendar';
 import { GRAPES, SITES } from './Catalog';
 import { landValueCents, terroirPotential } from './Origin';
 import type { GrapeId, SiteId, Vineyard, Weather } from './types';
+import { formatNumber } from '../../shared/numberFormat';
 
 export const MAX_VINEYARD_AREA_HA = 100;
 export const MIN_VINEYARD_AREA_HA = 0.01;
@@ -159,7 +160,7 @@ export function createVineyard(input: {
   if (!isCatalogKey(input.siteId, SITES)) return failure('Choose a recognized vineyard site.');
   if (!isCatalogKey(input.grapeId, GRAPES)) return failure('Choose a recognized grape variety.');
   if (typeof input.areaHa !== 'number' || !Number.isFinite(input.areaHa) || input.areaHa < MIN_VINEYARD_AREA_HA || input.areaHa > MAX_VINEYARD_AREA_HA) {
-    return failure(`Vineyard area must be between ${MIN_VINEYARD_AREA_HA} and ${MAX_VINEYARD_AREA_HA} hectares.`);
+    return failure(`Vineyard area must be between ${formatNumber(MIN_VINEYARD_AREA_HA)} and ${formatNumber(MAX_VINEYARD_AREA_HA)} hectares.`);
   }
   if (typeof input.year !== 'number' || !Number.isSafeInteger(input.year)) return failure('Planting year must be a safe integer.');
 
@@ -294,7 +295,7 @@ export function harvestVineyard(vineyard: Vineyard, requestedKg: number): RuleRe
     return failure('Vineyard crop state must contain valid finite quantities and bounded condition values.');
   }
   if (vineyard.ripeness < MINIMUM_HARVEST_RIPENESS) {
-    return failure(`Grapes cannot be harvested before ripeness reaches ${MINIMUM_HARVEST_RIPENESS}.`);
+    return failure(`Grapes cannot be harvested before ripeness reaches ${formatNumber(MINIMUM_HARVEST_RIPENESS)}.`);
   }
 
   const requestedKgAtGramPrecision = floorKgToGram(requestedKg);

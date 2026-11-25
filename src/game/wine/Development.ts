@@ -8,6 +8,7 @@ import {
 import { advanceRisks, ROT_GROWTH_MIN_TEMPERATURE_C, STUCK_FERMENTATION_YEAST_ACTIVITY_THRESHOLD } from './Risks';
 import type { PhysicalLot, PhysicalState, WineEnvironment } from './types';
 import { WINE_CAPACITY_EPSILON, WINE_MATERIAL_LIMITS } from './MaterialLimits';
+import { formatNumber } from '../../shared/numberFormat';
 
 /** Provisional game balance, expressed per day; these are not scientific measurements. */
 export const FERMENTATION_SUGAR_G_PER_L_PER_DAY = 8;
@@ -174,7 +175,7 @@ function advanceFermentationAndExtraction(lot: PhysicalLot, environment: WineEnv
 }
 
 function amount(value: number): string {
-  return Number(value.toPrecision(5)).toString();
+  return formatNumber(Number(value.toPrecision(5)), { maximumFractionDigits: 12 });
 }
 
 /** Environmental facts and risk changes observed during one canonical development day. */
@@ -269,7 +270,7 @@ function riskCauseSummaries(observations: readonly DevelopmentObservation[]): st
     const warm = environment.temperatureC >= ROT_GROWTH_MIN_TEMPERATURE_C;
     const sugar = observation.sugarGPerL > MIN_FERMENTABLE_SUGAR_G_PER_L;
     const phase = observation.fermentationActive ? 'fermenting' : 'cellar';
-    causes.push(`Rot: +${amount(group.rotIncrease)}; contamination ${amount(environment.contaminationRisk)}, ${amount(environment.temperatureC)}°C ${warm ? 'warm' : 'cool'}, sugar ${sugar ? '>' : '≤'}${MIN_FERMENTABLE_SUGAR_G_PER_L} g/L (${phase}).`);
+    causes.push(`Rot: +${amount(group.rotIncrease)}; contamination ${amount(environment.contaminationRisk)}, ${amount(environment.temperatureC)}°C ${warm ? 'warm' : 'cool'}, sugar ${sugar ? '>' : '≤'}${formatNumber(MIN_FERMENTABLE_SUGAR_G_PER_L)} g/L (${phase}).`);
   }
   for (const group of greenGroups.values()) {
     const phase = group.fermentationActive ? 'fermenting' : 'cellar';
@@ -305,7 +306,7 @@ function describeDevelopment(
   if (final.lees > initial.lees) causes.push(`Lees +${amount(final.lees - initial.lees)}.`);
   causes.push(...riskCauseSummaries(observations));
   if (final.ageDays > initial.ageDays || final.developmentAgeDays > initial.developmentAgeDays) {
-    causes.push(`Age +${final.ageDays - initial.ageDays}d (wine +${final.developmentAgeDays - initial.developmentAgeDays}d).`);
+    causes.push(`Age +${formatNumber(final.ageDays - initial.ageDays, { fractionDigits: 0 })}d (wine +${formatNumber(final.developmentAgeDays - initial.developmentAgeDays, { fractionDigits: 0 })}d).`);
   }
   return Object.freeze(causes);
 }

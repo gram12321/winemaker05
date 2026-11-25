@@ -1,5 +1,6 @@
 import type { GrapeId } from '../vineyard/types';
 import type { PhysicalLot, RawMaterialAnchors } from '../wine/types';
+import { formatNumber, formatPercent } from '../../shared/numberFormat';
 import type {
   AxisTarget,
   StructureAxis,
@@ -161,12 +162,12 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 function format(value: number): string {
-  return value.toFixed(2);
+  return formatNumber(value, { fractionDigits: 2 });
 }
 
 function formatShift(value: number): string {
   const shown = Math.abs(value) < 0.0005 ? 0 : value;
-  return `${shown >= 0 ? '+' : ''}${shown.toFixed(3)}`;
+  return `${shown >= 0 ? '+' : ''}${formatNumber(shown, { fractionDigits: 3 })}`;
 }
 
 function describeShiftLimits(
@@ -185,7 +186,7 @@ function describeShiftLimits(
   const limits: string[] = [];
   if (budgetLimited) {
     limits.push(
-      `axis movement budget +/-${TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis.toFixed(3)} `
+      `axis movement budget +/-${formatNumber(TARGET_PROFILE_BALANCE.maximumTotalShiftPerAxis, { fractionDigits: 3 })} `
         + `limits the combined shift to ${formatShift(budgetedShift)}`,
     );
   }
@@ -462,7 +463,7 @@ function buildContextualTargets<Axis extends string>(input: {
           + `target-center bounds [${format(contribution.width / 2)}, ${format(1 - contribution.width / 2)}] `
           + `limit the applied shift to ${formatShift(contribution.appliedContextShift)}`
         : `${capacityLabel} ${format(contribution.capacity.value)} shifts center ${formatShift(contribution.appliedContextShift)}`;
-      return `${GRAPE_NAMES[contribution.source.origin.grapeId]} ${format(contribution.source.fraction * 100)}% `
+      return `${GRAPE_NAMES[contribution.source.origin.grapeId]} ${formatPercent(contribution.source.fraction, { maximumFractionDigits: 2 })} `
         + `(base center ${format(contribution.unshiftedMidpoint)}, anchor-context center ${format(contribution.midpoint)}`
         + `${widthNote}, weight ${format(contribution.weight)}, `
         + `${contextShiftNote})`;

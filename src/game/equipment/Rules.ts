@@ -2,6 +2,7 @@ import { clamp, failure, success, type RuleResult } from '../core/Numbers';
 import type { Holding } from '../inventory/types';
 import type { PhysicalLot, WineEnvironment } from '../wine/types';
 import type { Vessel, VesselMaterial } from './types';
+import { formatNumber } from '../../shared/numberFormat';
 
 /** Provisional equipment prices and physical effects: game balance, not laboratory measurements. */
 export const MIN_VESSEL_CAPACITY_LITRES = 1;
@@ -48,12 +49,12 @@ export function vesselPurchase(input: { id: string; material: VesselMaterial; ca
   if (!Number.isSafeInteger(input.capacityLitres)
     || input.capacityLitres < MIN_VESSEL_CAPACITY_LITRES
     || input.capacityLitres > MAX_VESSEL_CAPACITY_LITRES) {
-    return failure(`Vessel capacity must be a whole number from ${MIN_VESSEL_CAPACITY_LITRES} to ${MAX_VESSEL_CAPACITY_LITRES} litres.`);
+    return failure(`Vessel capacity must be a whole number from ${formatNumber(MIN_VESSEL_CAPACITY_LITRES, { fractionDigits: 0 })} to ${formatNumber(MAX_VESSEL_CAPACITY_LITRES, { fractionDigits: 0 })} litres.`);
   }
   const material = VESSEL_MATERIALS[input.material];
   const vessel: Vessel = Object.freeze({
     id: input.id.trim(),
-    name: `${material.label} vessel (${input.capacityLitres} L)`,
+    name: `${material.label} vessel (${formatNumber(input.capacityLitres, { fractionDigits: 0 })} L)`,
     material: input.material,
     capacityMl: input.capacityLitres * 1000,
     condition: 1,

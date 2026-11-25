@@ -3,6 +3,7 @@ import { GRAPES } from '../vineyard/Catalog';
 import type { GrapeDefinition, Vineyard } from '../vineyard/types';
 import type { RawMaterialAnchors, PhysicalLot, WineOrigin } from './types';
 import { WINE_MATERIAL_LIMITS } from './MaterialLimits';
+import { formatPercent } from '../../shared/numberFormat';
 
 /** Provisional anchor balance values. These describe harvest inheritance, not quality scores. */
 export const BASE_GRAPE_SUGAR_G_PER_L = 170;
@@ -177,7 +178,7 @@ export function createHarvestLot(input: {
     }),
     parentIds: Object.freeze([]),
     sources: Object.freeze([source]),
-    history: Object.freeze([{ week, action: 'harvested', detail: `Harvested from ${vineyard.name} at ${Math.round(vineyard.ripeness * 100)}% ripeness, ${Math.round(vineyard.nobleRot * 100)}% noble rot and ${Math.round(vineyard.rot * 100)}% grey rot; raw material anchors were fixed at harvest.` }]),
+    history: Object.freeze([{ week, action: 'harvested', detail: `Harvested from ${vineyard.name} at ${formatPercent(vineyard.ripeness, { fractionDigits: 0 })} ripeness, ${formatPercent(vineyard.nobleRot, { fractionDigits: 0 })} noble rot and ${formatPercent(vineyard.rot, { fractionDigits: 0 })} grey rot; raw material anchors were fixed at harvest.` }]),
     bottling: null,
   });
 }

@@ -318,7 +318,7 @@ describe('wine physical operations', () => {
     expect(readiness.ready).toBe(false);
     expect(readiness.reasons).toEqual(expect.arrayContaining([
       `Sugar must be at or below ${BOTTLING_MAX_SUGAR_G_PER_L} g/L.`,
-      `Alcohol must be at least ${BOTTLING_MIN_ALCOHOL_PCT}%.`,
+      `Alcohol must be at least ${BOTTLING_MIN_ALCOHOL_PCT} %.`,
     ]));
     expect(canBottle({ ...blockers, processes: { ...blockers.processes, fermenting: true } }).ready).toBe(false);
   });

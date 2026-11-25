@@ -4,7 +4,7 @@ import { saleQuote } from '../../game/queries/CompanyView';
 import type { CellarLotView } from '../../game/queries/CompanyView';
 import type { BuyerId } from '../../game/commercial/types';
 import type { Vessel } from '../../game/equipment/types';
-import { buyerName, decimal, money, quantity, type GameProps } from './common';
+import { buyerName, decimal, integer, money, percent, percentage, quantity, type GameProps } from './common';
 
 type Destination<Preview extends ActionPreview = ActionPreview> = { vessel: Vessel | null; preview: Preview };
 
@@ -38,7 +38,7 @@ export function PressForm({ row, company, disabled, onCommand }: { row: CellarLo
   const outcome = chosen?.preview.allowed ? chosen.preview.outcome : null;
   return <form className="game-form" onSubmit={event => { event.preventDefault(); if (chosen?.vessel) onCommand({ type: 'wine.press', lotId: row.lot.id, vesselId: chosen.vessel.id, intensity, destem, skinContact }); }}>
     <h4>Press grapes</h4><p>Press all {quantity(row.holding.quantity, row.holding.unit)}. Split the lot first to press a portion.{row.pressingCostCents !== null && ` Processing cost: ${money(row.pressingCostCents)}.`}</p>
-    <label>Press intensity ({decimal(intensity * 100, 0)}%)<input type="range" min="0" max="1" step="0.05" value={intensity} onChange={event => setIntensity(Number(event.target.value))} /></label>
+    <label>Press intensity ({percentage(intensity, 0)})<input type="range" min="0" max="1" step="0.05" value={intensity} onChange={event => setIntensity(Number(event.target.value))} /></label>
     <div className="game-checks"><label><input type="checkbox" checked={destem} onChange={event => setDestem(event.target.checked)} />Destem</label><label><input type="checkbox" checked={skinContact} onChange={event => setSkinContact(event.target.checked)} />Skin contact</label></div>
     <DestinationSelect label="Press into" destinations={destinations} chosen={chosen} onChange={setVesselId} /><NoDestinationReasons destinations={destinations} chosen={chosen} />
     {outcome && <p aria-label="Press outcome preview">Press preview: expected yield {quantity(outcome.juiceMl, 'ml')} juice · {decimal(outcome.extractedPhenolics, 3)} phenolics extracted · +{decimal(outcome.greenCharacterAdded, 3)} green character · +{decimal(outcome.oxygenExposureAdded, 3)} oxygen exposure</p>}
@@ -53,7 +53,7 @@ export function FermentationForm({ row, company, disabled, onCommand }: { row: C
   const command = { type: 'wine.ferment' as const, lotId: row.lot.id, temperatureC, skinContact, leesContact };
   const preview = previewCommand(company, command);
   return <form className="game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
-    <h4>Fermentation &amp; contact</h4><p>Sugar {decimal(row.lot.physical.sugarGPerL)} g/L · Alcohol {decimal(row.lot.physical.alcoholPct)}% · Yeast {decimal(row.lot.physical.yeastActivity * 100, 0)}/100</p>
+    <h4>Fermentation &amp; contact</h4><p>Sugar {decimal(row.lot.physical.sugarGPerL)} g/L · Alcohol {decimal(row.lot.physical.alcoholPct)} % · Yeast {percent(row.lot.physical.yeastActivity)}</p>
     <label>Fermentation temperature (°C)<input type="number" min="2" max="40" step="0.5" value={temperatureC} onChange={event => setTemperature(Number(event.target.value))} /></label>
     <div className="game-checks"><label><input type="checkbox" checked={skinContact} onChange={event => setSkinContact(event.target.checked)} />Skin contact</label><label><input type="checkbox" checked={leesContact} onChange={event => setLeesContact(event.target.checked)} />Lees contact</label></div>
     <Reasons preview={preview} /><button disabled={disabled || !preview.allowed}>{row.fermentationActionLabel}</button>
@@ -88,7 +88,7 @@ function BottleForm({ row, company, disabled, onCommand }: { row: CellarLotView 
   const command = { type: 'wine.bottle' as const, lotId: row.lot.id, bottles };
   const preview = previewCommand(company, command);
   return <form className="game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
-    <h4>Bottle wine</h4><p>Maximum: {decimal(row.maximumBottles, 0)} whole bottles.{row.maximumBottlingCostCents !== null && ` Cost to bottle the maximum: ${money(row.maximumBottlingCostCents)}.`}</p>
+    <h4>Bottle wine</h4><p>Maximum: {integer(row.maximumBottles)} whole bottles.{row.maximumBottlingCostCents !== null && ` Cost to bottle the maximum: ${money(row.maximumBottlingCostCents)}.`}</p>
     {!row.bottlingReadiness.ready && <p className="game-warning">{row.bottlingReadiness.reasons.join(' ')}</p>}
     <label>Number of bottles<input type="number" min="1" step="1" value={bottles} onChange={event => setBottles(Number(event.target.value))} /></label>
     <Reasons preview={preview} /><button disabled={disabled || !preview.allowed}>Bottle wine</button>
@@ -102,7 +102,7 @@ function SellForm({ row, company, view, disabled, onCommand }: { row: CellarLotV
   const preview = previewCommand(company, command);
   const quote = saleQuote(company, row.lot.id, buyerId, bottles);
   return <form className="game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
-    <h4>Sell bottles</h4><p>{decimal(row.available, 0)} available · {decimal(row.reserved, 0)} reserved</p>
+    <h4>Sell bottles</h4><p>{integer(row.available)} available · {integer(row.reserved)} reserved</p>
     <label>Buyer<select value={buyerId} onChange={event => setBuyerId(event.target.value as BuyerId)}>{view.customers.map(customer => <option key={customer.id} value={customer.id}>{buyerName(customer.id)}</option>)}</select></label>
     <label>Number of bottles<input type="number" min="1" step="1" value={bottles} onChange={event => setBottles(Number(event.target.value))} /></label>
     {quote?.ok && <p>Quote: {money(quote.value.totalCents)} · {money(quote.value.pricePerBottleCents)} per bottle. {quote.value.reasons.join(' ')}</p>}

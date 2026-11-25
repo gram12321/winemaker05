@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { vineyardEstablishmentPreview } from '../../game/queries/CompanyView';
 import { previewCommand } from '../../game/queries/ActionPreviews';
 import type { GrapeId, SiteId } from '../../game/vineyard/types';
-import { ActivityList, ContextScene, decimal, Empty, money, percent, type GameProps } from './common';
+import { ActivityList, ContextScene, decimal, Empty, money, percent, percentage, type GameProps } from './common';
 
 function EstablishVineyard({ company, view, disabled, onCommand }: GameProps) {
   const [name, setName] = useState('');
@@ -12,7 +12,7 @@ function EstablishVineyard({ company, view, disabled, onCommand }: GameProps) {
   const establishmentPreview = vineyardEstablishmentPreview(siteId, grapeId, areaHa);
   const command = { type: 'vineyard.establish' as const, name: name.trim(), siteId, grapeId, areaHa };
   const commandPreview = previewCommand(company, command);
-  return <form className="game-card game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
+  return <form className="game-card game-form" data-game-focus="estate-establish" tabIndex={-1} onSubmit={event => { event.preventDefault(); onCommand(command); }}>
     <span className="eyebrow">GROW SOMETHING DISTINCTIVE</span><h2>Establish a vineyard</h2>
     <label>Vineyard name<input required maxLength={80} value={name} onChange={event => setName(event.target.value)} placeholder="Name your vineyard" /></label>
     <div className="game-form-grid"><label>Site<select value={siteId} onChange={event => setSiteId(event.target.value as SiteId)}>{view.siteOptions.map(site => <option key={site.id} value={site.id}>{site.name} · {site.region}</option>)}</select></label>
@@ -41,8 +41,8 @@ function VineyardCard({ row, company, view, disabled, onCommand }: { row: GamePr
   return <article className="game-card">
     <div className="game-card-heading"><div><span className="eyebrow">{site.region.toUpperCase()} · {grape.name.toUpperCase()}</span><h3>{vineyard.name}</h3></div><span className="game-tag">{decimal(vineyard.areaHa, 2)} ha</span></div>
     <p>{site.name} · Vintage {vineyard.cropYear}</p>
-    <dl className="game-metrics"><div><dt>Terroir Potential</dt><dd>{percent(origin.terroirPotential)}</dd></div><div><dt>Origin Prestige</dt><dd>{percent(origin.originPrestige)}</dd></div><div><dt>Ripeness</dt><dd>{percent(vineyard.ripeness)}</dd></div><div><dt>Condition</dt><dd>{percent(vineyard.condition)}</dd></div><div><dt>Harvestable now</dt><dd>{decimal(row.harvestableKg, 3)} kg</dd></div><div><dt>Harvested</dt><dd>{decimal(vineyard.harvestedKg, 3)} kg</dd></div></dl>
-    <dl className="game-metrics"><div><dt>Noble rot</dt><dd>{percent(vineyard.nobleRot)}</dd></div><div><dt>Grey rot</dt><dd>{percent(vineyard.rot)}</dd></div></dl>
+    <dl className="game-metrics"><div><dt>Terroir Potential</dt><dd>{percent(origin.terroirPotential)}</dd></div><div><dt>Origin Prestige</dt><dd>{percent(origin.originPrestige)}</dd></div><div><dt>Ripeness</dt><dd>{percentage(vineyard.ripeness)}</dd></div><div><dt>Condition</dt><dd>{percentage(vineyard.condition)}</dd></div><div><dt>Harvestable now</dt><dd>{decimal(row.harvestableKg, 3)} kg</dd></div><div><dt>Harvested</dt><dd>{decimal(vineyard.harvestedKg, 3)} kg</dd></div></dl>
+    <dl className="game-metrics"><div><dt>Noble rot</dt><dd>{percentage(vineyard.nobleRot)}</dd></div><div><dt>Grey rot</dt><dd>{percentage(vineyard.rot)}</dd></div></dl>
     <form className="game-form" onSubmit={event => { event.preventDefault(); onCommand(command); }}>
       <label>Harvest target (kg)<input type="number" min="0.001" step="0.001" required value={kilograms} onChange={event => setKilograms(Number(event.target.value))} /></label>
       <fieldset><legend>Harvest team</legend><div className="game-checks">{view.work.staff.map(worker => <label key={worker.id}><input type="checkbox" checked={staffIds.includes(worker.id)} onChange={event => setStaffIds(current => event.target.checked ? [...current, worker.id] : current.filter(id => id !== worker.id))} />{worker.name} · {decimal(worker.kgPerWeek)} kg/week</label>)}</div></fieldset>
@@ -54,10 +54,12 @@ function VineyardCard({ row, company, view, disabled, onCommand }: { row: GamePr
 
 export function Estate(props: GameProps) {
   const { view } = props;
-  return <div className="game-layout"><div className="game-stack">
-    <div className="game-banner game-banner-scene"><div><span className="eyebrow">THE GROWING SEASON</span><h2>Your vineyards</h2><p>Weather: {decimal(view.weather.temperatureC)}°C · {decimal(view.weather.rainMm)} mm rain · {percent(view.weather.humidity)} humidity. Harvest receiving: {quantityKg(view.harvestStorageFreeG)} free.</p></div><ContextScene scene="estate" /></div>
+  const sceneSelection = props.selectedSceneObject ?? null;
+  const onSceneSelect = props.onSceneObjectSelect ?? (() => {});
+  return <div className="game-layout"><div className="game-stack" data-game-focus="estate-vineyards" tabIndex={-1}>
+    <div className="game-banner game-banner-scene"><div><span className="eyebrow">THE GROWING SEASON</span><h2>Your vineyards</h2><p>Weather: {decimal(view.weather.temperatureC)}°C · {decimal(view.weather.rainMm)} mm rain · {percentage(view.weather.humidity)} humidity. Harvest receiving: {quantityKg(view.harvestStorageFreeG)} free.</p></div><ContextScene scene="estate" view={view} selected={sceneSelection} onSelect={onSceneSelect} /></div>
     {view.vineyards.length ? view.vineyards.map(row => <VineyardCard key={row.vineyard.id} row={row} {...props} />) : <Empty>Establish a named vineyard to begin growing your first crop.</Empty>}
-    <section className="game-card"><h2>Work in progress</h2><ActivityList {...props} /></section>
+    <section className="game-card" data-game-focus="estate-work" tabIndex={-1}><h2>Work in progress</h2><ActivityList {...props} /></section>
   </div><EstablishVineyard {...props} /></div>;
 }
 

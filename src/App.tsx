@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { managementSections, navigation, scenes, type Destination, type ManagementSection, type SceneObjectId } from "./experience";
 import { Management } from "./components/Management";
@@ -7,6 +7,7 @@ import { WineDialog } from "./components/WineDialog";
 import { GameWorkspace } from "./components/game/GameWorkspace";
 import { ActivityList } from "./components/game/common";
 import { companyView } from "./game/queries/CompanyView";
+import { sceneNavigation, type GameFocusTarget } from "./components/game/sceneNavigation";
 
 interface AppProps {
   company?: import('./game/core').CompanyState;
@@ -21,19 +22,31 @@ export default function App({ company, onCommand, calendar, busy = false, canAdv
   const [destination, setDestination] = useState<Destination>("estate");
   const [managementSection, setManagementSection] = useState<ManagementSection>("finance");
   const [selected, setSelected] = useState<SceneObjectId | null>(null);
+  const [gameFocusTarget, setGameFocusTarget] = useState<GameFocusTarget | null>(null);
   const [activityOpen, setActivityOpen] = useState(false);
   const [wineOpen, setWineOpen] = useState(false);
   const activityToggleRef = useRef<HTMLButtonElement>(null);
   const currentScene = destination === "management" ? null : scenes[destination];
   const currentManagement = managementSections.find((item) => item.id === managementSection);
-  const view = company ? companyView(company) : null;
+  const view = useMemo(() => company ? companyView(company) : null, [company]);
   const gameDisabled = busy || !canAdvance || !onCommand;
   const command = onCommand ?? (() => {});
 
   function navigate(next: Destination) {
     setDestination(next);
     setSelected(null);
+    setGameFocusTarget(null);
   }
+
+  function selectSceneObject(id: SceneObjectId) {
+    const target = sceneNavigation[id];
+    setSelected(id);
+    setDestination(target.destination);
+    setGameFocusTarget(target.focusTarget);
+    if (target.managementSection) setManagementSection(target.managementSection);
+  }
+
+  const clearGameFocusTarget = useCallback(() => setGameFocusTarget(null), []);
 
   function closeActivity() {
     setActivityOpen(false);
@@ -98,7 +111,7 @@ export default function App({ company, onCommand, calendar, busy = false, canAdv
           </div>
 
           {company && view ? (
-            <GameWorkspace company={company} view={view} disabled={gameDisabled} onCommand={command} destination={destination} managementSection={managementSection} onManagementSectionChange={setManagementSection} />
+            <GameWorkspace company={company} view={view} disabled={gameDisabled} onCommand={command} destination={destination} managementSection={managementSection} onManagementSectionChange={setManagementSection} selectedSceneObject={selected} onSceneObjectSelect={selectSceneObject} focusTarget={gameFocusTarget} onFocusComplete={clearGameFocusTarget} />
           ) : destination === "management" ? (
             <Management section={managementSection} onSectionChange={setManagementSection} />
           ) : (
